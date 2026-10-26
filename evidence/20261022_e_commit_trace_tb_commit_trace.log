@@ -1,0 +1,26 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-22 12:13:16 IST
+Owner (module): E   Run by: E
+Module: commit_trace
+Specification: blueprint 6.17 reference model + commit-trace compare
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: iverilog -g2012 -I ooo_rtl -o simulation/build/tb_commit_trace -DTOMA_SIM ooo_rtl/top_fpga_ooo.v ooo_rtl/perf_counters.v ooo_rtl/pipe_ooo.v ooo_rtl/ooo_core.v ooo_rtl/ooo_frontend.v ooo_rtl/instr_queue.v ooo_rtl/ooo_decode.v ooo_rtl/ooo_dispatch.v ooo_rtl/rat.v ooo_rtl/regfile_2r1w.v ooo_rtl/rob.v ooo_rtl/rs_array.v ooo_rtl/alu_fu.v ooo_rtl/mul_unit.v ooo_rtl/div_unit.v ooo_rtl/lsu.v modules/memory.v ooo_tests/tb_commit_trace.v && (cd simulation && vvp -n build/tb_commit_trace)
+Working directory: tomasulo-rv
+Commit: e01a870 +uncommitted changes
+Exit status: 0
+Simulated time: 10500000 ps (10 ns clock => 1050 cycles)
+Wall time: 0s
+Test result: PASS
+Summary: TEST_PASS commit_trace 380
+---
+../mem_generator/imem_dmem/imem.hex: 200 commits compared, result=00000000 done=0 exception=0 cycles=262 retired=202 ooo_count=23, 0 failures
+../ooo_tests/programs/top_mmio.hex: 92 commits compared, result=00000003 done=1 exception=0 cycles=173 retired=92 ooo_count=4, 0 failures
+../ooo_tests/programs/ooo_trace.hex: 14 commits compared, result=0000021e done=1 exception=0 cycles=52 retired=14 ooo_count=4, 0 failures
+../ooo_tests/programs/rv32m_edge.hex: 74 commits compared, result=4000000e done=1 exception=0 cycles=526 retired=74 ooo_count=18, 0 failures
+SKIP commit_trace ../ooo_tests/programs/mul_d8.hex: not built (no RISC-V gcc)
+SKIP commit_trace ../ooo_tests/programs/div_d8.hex: not built (no RISC-V gcc)
+SKIP commit_trace ../ooo_tests/programs/rv32m_d8.hex: not built (no RISC-V gcc)
+commit_trace: 3 of 7 programs skipped
+TEST_PASS commit_trace 380
+ooo_tests/tb_commit_trace.v:168: $finish called at 10500000 (1ps)
+---

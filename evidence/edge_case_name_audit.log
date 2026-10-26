@@ -1,0 +1,84 @@
+# date: 2026-10-23T11:29:37Z
+# tool: Icarus Verilog version 12.0 (stable) (); Yosys 0.33 (git sha1 2584903a060); Python 3.13.16
+# commit: none (repo not in project; files from /mnt/project-files/toma-rv)
+# request: check the code, all minute edge cases must pass, names must match the spec files
+# md5: rtl/regfile_2r1w.v e5cf40f92a193fc38397738cfb2acc8b; rtl/div_unit.v 1f451563aef651f77c44a3b10656852e; include_stub/ooo_defs.vh 9d88ee559a5f14104337ab2a0c2faeef; tb/tb_regfile_2r1w_exhaustive.v b458b26cd74c153ba65926b54add495f; tb/tb_div_unit_idle_x.v 70d3f0103f6c828b5d9ce9bbb11f2171; tb/tb_div_unit_vectors.v c0c6b4d30b4d6719f122c0b0da6b7e4f; tools/gen_div_vectors_ext.py cd368cc97a00abf9ea303dba9be68f0a; 
+
+== 1. Name audit vs SIGNALS_REFERENCE v0.3 (2.12, 2.15, intro clk/reset_n) ==
+== rtl/regfile_2r1w.v: module 'regfile_2r1w' (spec 'regfile_2r1w') -> PASS
+   file name spec 'regfile_2r1w.v' rtl 'regfile_2r1w.v' -> PASS
+   PASS clk       spec=in/1 rtl=('in', 1)
+   PASS reset_n   spec=in/1 rtl=('in', 1)
+   PASS raddr1    spec=in/5 rtl=('in', 5)
+   PASS raddr2    spec=in/5 rtl=('in', 5)
+   PASS rdata1    spec=out/32 rtl=('out', 32)
+   PASS rdata2    spec=out/32 rtl=('out', 32)
+   PASS we        spec=in/1 rtl=('in', 1)
+   PASS waddr     spec=in/5 rtl=('in', 5)
+   PASS wdata     spec=in/32 rtl=('in', 32)
+   PASS no ports beyond spec: []
+== rtl/div_unit.v: module 'div_unit' (spec 'div_unit') -> PASS
+   file name spec 'div_unit.v' rtl 'div_unit.v' -> PASS
+   PASS clk       spec=in/1 rtl=('in', 1)
+   PASS reset_n   spec=in/1 rtl=('in', 1)
+   PASS start     spec=in/1 rtl=('in', 1)
+   PASS funct3    spec=in/2 rtl=('in', 2)
+   PASS a         spec=in/32 rtl=('in', 32)
+   PASS b         spec=in/32 rtl=('in', 32)
+   PASS tag       spec=in/3 rtl=('in', 3)
+   PASS busy      spec=out/1 rtl=('out', 1)
+   PASS done      spec=out/1 rtl=('out', 1)
+   PASS done_tag  spec=out/3 rtl=('out', 3)
+   PASS result    spec=out/32 rtl=('out', 32)
+   PASS no ports beyond spec: []
+RESULT ALL PASS
+# cross-check with Yosys write_json port list (independent parser):
+#  regfile_2r1w clk:inp/1 reset_n:inp/1 raddr1:inp/5 rdata1:out/32 raddr2:inp/5 rdata2:out/32 we:inp/1 waddr:inp/5 wdata:inp/32 | params {}
+#  div_unit clk:inp/1 reset_n:inp/1 start:inp/1 funct3:inp/2 a:inp/32 b:inp/32 tag:inp/3 busy:out/1 done:out/1 result:out/32 done_tag:out/3 | params {'ROB_W': 3}
+# ROB_W comes from `ROB_W in ooo_defs.vh (div_unit.v:32); stub values ROB_N=8 ROB_W=3 NCDB=4 CLS_*=0..7 CDB_*=0..3 match BLUEPRINT §5
+# testbench names per BLUEPRINT §6.5/§6.11: tb_regfile_2r1w.v, tb_div_unit.v present; both print TEST_PASS <module> <n>
+
+== 2. regfile exhaustive: raddr1 x raddr2 x waddr x we = 65,536 cycles + X-input cases ==
+# cmd: iverilog -g2012 -Wall -o build/rfx.vvp rtl/regfile_2r1w.v tb/tb_regfile_2r1w_exhaustive.v && vvp -n build/rfx.vvp
+coverage: we1_all_three_same=32 x0_writes=1024 collide=1953
+TEST_PASS regfile_2r1w 131400
+tb/tb_regfile_2r1w_exhaustive.v:100: $finish called at 656732000 (1ps)
+# mutants of regfile_2r1w.v (scratch copies) vs this tb, each must TEST_FAIL:
+#   R1 write-through on port 1                  : TEST_FAIL regfile_2r1w 992 failed, 130408 passed
+#   R2 port 2 reads raddr1                      : TEST_FAIL regfile_2r1w 21979 failed, 109421 passed
+#   R3 write ignores we                         : TEST_FAIL regfile_2r1w 63488 failed, 67912 passed
+#   R4 address bit 4 stuck at 0 on write        : TEST_FAIL regfile_2r1w 16694 failed, 114706 passed
+#   R5 x0 mux on port 2 removed                 : TEST_FAIL regfile_2r1w 2057 failed, 129343 passed
+#   R6 wdata bit 31 dropped                     : TEST_FAIL regfile_2r1w 15727 failed, 115673 passed
+
+== 3. div_unit extended corner grid (40 values x 40 x 4 ops), independent Python model ==
+# cmd: python3 tools/gen_div_vectors_ext.py build/vec_ext 125
+40 corner values -> 6400 grid vectors
+self-check vs spec examples: True True True True True True
+# model cross-check: tb/vectors/div_unit_vectors.mem (gen_div_vectors.py model) vs new model: 4852 vectors, 0 mismatches
+# cmd: iverilog -g2012 -Wall -I include_stub -o build/dv.vvp rtl/div_unit.v tb/tb_div_unit_vectors.v && vvp -n build/dv.vvp +vectors=build/vec_ext/ext_grid.mem
+   25    6400       0
+TEST_PASS div_unit 6400
+
+== 4. div_unit 1,000,000 random ops (125 files x 8000, seed 20261023, 8 operand classes) ==
+rnd_00.mem: TEST_PASS div_unit 8000
+rnd_01.mem: TEST_PASS div_unit 8000
+rnd_02.mem: TEST_PASS div_unit 8000
+# ... first 3 files shown; any failing file would be printed above. Summary of all 125 files:
+    125 TEST_PASS div_unit 8000
+
+== 5. div_unit idle / unknown (X) inputs ==
+# cmd: iverilog -g2012 -Wall -I include_stub -o build/dx.vvp rtl/div_unit.v tb/tb_div_unit_idle_x.v && vvp -n build/dx.vvp
+TEST_PASS div_unit 92
+tb/tb_div_unit_idle_x.v:34: $finish called at 1240000 (1ps)
+
+== 6. ROB_W = 4 build (ROB 16 sweep, scratch copy of ooo_defs.vh with ROB_N 16 / ROB_W 4; no port edits) ==
+Measured DIV latency: min 33, max 33 cycles (start cycle t -> done cycle)
+TEST_PASS div_unit 721352
+TEST_PASS reset_x0_integration 499
+
+== 7. Existing testbenches rerun (unchanged files) ==
+TEST_PASS regfile_2r1w 46399
+TEST_PASS div_unit 721344
+TEST_PASS div_unit 4852
+TEST_PASS reset_x0_integration 499

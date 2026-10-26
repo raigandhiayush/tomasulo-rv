@@ -1,0 +1,18 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-22 11:55:43 IST
+Owner (module): E   Run by: A
+Module: check_elf
+Specification: blueprint 6.17 tools/check_elf.py (synthetic ELFs + ooo_decode cross-check)
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: python3 -I tools/test_check_elf.py
+Working directory: tomasulo-rv
+Commit: e01a870 +uncommitted changes
+Exit status: 0
+Simulated time: ? ps (10 ns clock => 0 cycles)
+Wall time: 2s
+Test result: PASS
+Summary: TEST_PASS check_elf 26158
+---
+14 ELF cases, 26144 decoder cross-check words
+TEST_PASS check_elf 26158
+---
