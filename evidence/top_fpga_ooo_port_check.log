@@ -1,0 +1,104 @@
+# date: 2026-10-23T11:00:16Z
+# tools: Icarus Verilog version 12.0 (stable) (); Verilator 5.020 2024-01-01 rev (Debian 5.020-1); Yosys 0.33 (git sha1 2584903a060); Python 3.13.16
+# commit: none (repo not in project; files from /mnt/project-files/toma-rv)
+# rtl/top_fpga_ooo.v md5 19399d7dd535d37c175105ca1e413330; rtl/perf_counters.v md5 2ab45a27d35ce45a242aa526a67a9031
+# NOTE: pipe_ooo, instr_mem, data_mem are NOT in the project. The checks below used scratch port
+#       shells typed from SIGNALS_REFERENCE 1.1+2.1/2.2, 1.2, 1.3 (kept out of the project).
+
+== 1. Board / clock / reset vs Digilent Nexys-A7-100T-Master.xdc ==
+# source: https://raw.githubusercontent.com/Digilent/digilent-xdc/master/Nexys-A7-100T-Master.xdc (sha256 40b8d2b557673d90fbb20018210e4e3460c52e071696edaebd4b6ad5b00599e2)
+#set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { CLK100MHZ }]; #IO_L12P_T1_MRCC_35 Sch=clk100mhz
+#set_property -dict { PACKAGE_PIN J15   IOSTANDARD LVCMOS33 } [get_ports { SW[0] }]; #IO_L24N_T3_RS0_15 Sch=sw[0]
+#set_property -dict { PACKAGE_PIN C12   IOSTANDARD LVCMOS33 } [get_ports { CPU_RESETN }]; #IO_L3P_T0_DQS_AD1P_15 Sch=cpu_resetn
+# result: E3 = CLK100MHZ (100 MHz) matches spec clk; J15 = SW[0] (slide switch): matches baseline reset pin but collides with sw[0] (open item C2)
+
+== 2. Port comparison (SIGNALS_REFERENCE tables vs rtl/top_fpga_ooo.v) ==
+# cmd: python3 port_check.py SIGNALS_REFERENCE.md rtl/top_fpga_ooo.v
+PASS top_fpga_ooo port: clk spec=in/1 rtl=('input', 1)
+PASS top_fpga_ooo port: reset spec=in/1 rtl=('input', 1)
+PASS top_fpga_ooo port: sw spec=in/16 rtl=('input', 16)
+PASS top_fpga_ooo port: btn spec=in/1+ rtl=('input', 1)
+PASS top_fpga_ooo port: led spec=out/16 rtl=('output', 16)
+PASS top_fpga_ooo port: seg spec=out/8 each rtl=('output', 8)
+PASS top_fpga_ooo port: an spec=out/8 each rtl=('output', 8)
+PASS top_fpga_ooo port count: rtl=['an', 'btn', 'clk', 'led', 'reset', 'seg', 'sw']
+PASS pipe_ooo baseline port: clk in [1] <- core_clk (w=1)
+PASS pipe_ooo baseline port: reset in [1] <- core_reset_n (w=1)
+PASS pipe_ooo baseline port: stall in [1] <- 1'b0 (w=1)
+PASS pipe_ooo baseline port: inst_mem_is_valid in [1] <- 1'b1 (w=1)
+PASS pipe_ooo baseline port: inst_mem_read_data in [32] <- inst_mem_read_data (w=32)
+PASS pipe_ooo baseline port: dmem_read_data_temp in [32] <- dmem_read_data_temp (w=32)
+PASS pipe_ooo baseline port: dmem_write_valid in [1] <- 1'b1 (w=1)
+PASS pipe_ooo baseline port: dmem_read_valid in [1] <- 1'b1 (w=1)
+PASS pipe_ooo baseline port: exception out [1] <- exception (w=1)
+PASS pipe_ooo baseline port: pc_out out [32] <- pc_out (w=32)
+PASS pipe_ooo baseline port: inst_mem_address out [32] <- inst_mem_address (w=32)
+PASS pipe_ooo baseline port: dmem_read_ready out [1] <- dmem_read_ready (w=1)
+PASS pipe_ooo baseline port: dmem_read_address out [32] <- dmem_read_address (w=32)
+PASS pipe_ooo baseline port: dmem_write_ready out [1] <- dmem_write_ready (w=1)
+PASS pipe_ooo baseline port: dmem_write_address out [32] <- dmem_write_address (w=32)
+PASS pipe_ooo baseline port: dmem_write_data out [32] <- dmem_write_data (w=32)
+PASS pipe_ooo baseline port: dmem_write_byte out [4] <- dmem_write_byte (w=4)
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_valid out [1] <- dbg_commit_valid
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_pc out [32] <- dbg_commit_pc
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_rd out [5] <- dbg_commit_rd
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_has_rd out [1] <- dbg_commit_has_rd
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_value out [32] <- dbg_commit_value
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_commit_is_store out [1] <- dbg_commit_is_store
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_ooo_event out [1] <- dbg_ooo_event
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_stall_rob out [1] <- dbg_stall_rob
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_stall_rs out [1] <- dbg_stall_rs
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_hold out [1] <- dbg_hold
+PASS pipe_ooo dbg port (SR 2.1/2.2): dbg_cdb_valid out [4] <- dbg_cdb_valid
+PASS pipe_ooo no other ports: []
+INFO pipe_ooo instance: 17 baseline ports (all of SR 1.1) + 11 dbg_* ports
+PASS instr_mem port: clk in [1] <- core_clk
+PASS instr_mem port: pc in [32] <- inst_mem_address
+PASS instr_mem port: instr out [32] <- inst_mem_read_data
+PASS instr_mem clk/reset: clk connected
+PASS instr_mem no other ports: []
+PASS data_mem port: clk in [1] <- core_clk
+PASS data_mem port: re in [1] <- dmem_read_ready
+PASS data_mem port: raddr in [32] <- dmem_read_address
+PASS data_mem port: rdata out [32] <- dm_rdata
+PASS data_mem port: we in [1] <- dm_we
+PASS data_mem port: waddr in [32] <- dmem_write_address
+PASS data_mem port: wdata in [32] <- dmem_write_data
+PASS data_mem port: wstrb in [4] <- dmem_write_byte
+PASS data_mem clk/reset: clk connected
+PASS data_mem no other ports: []
+PASS perf_counters port: run in [1] <- ~done
+PASS perf_counters port: commit_valid in [1] <- dbg_commit_valid
+PASS perf_counters port: ooo_event in [1] <- dbg_ooo_event
+PASS perf_counters port: stall_rob in [1 each] <- dbg_stall_rob
+PASS perf_counters port: stall_rs in [1 each] <- dbg_stall_rs
+PASS perf_counters port: hold in [1 each] <- dbg_hold
+PASS perf_counters port: cycles out [32] <- cycles
+PASS perf_counters port: retired out [32] <- retired
+PASS perf_counters port: ooo_count out [32] <- ooo_count
+PASS perf_counters port: rob_stall_cycles out [32 each] <- rob_stall_cycles
+PASS perf_counters port: rs_stall_cycles out [32 each] <- rs_stall_cycles
+PASS perf_counters port: hold_cycles out [32 each] <- hold_cycles
+PASS perf_counters clk/reset: clk connected reset_n connected
+PASS perf_counters no other ports: []
+RESULT ALL PASS
+
+== 3. Compile / lint / synthesis checks ==
+iverilog -g2005 -Wall: rc=0, messages=0
+iverilog -g2012 -Wall: rc=0, messages=0
+verilator --lint-only -Wall: rc=0, warnings=0
+yosys hierarchy -check; proc; check -assert; no latches: rc=0, messages=0
+
+== 4. MMIO smoke run (informal; scratch testbench, stub pipe_ooo driven directly) ==
+# covers T1, T2, T3 (done; cycles/retired/ooo_count frozen, after proving retired counts before done), T4 (20 switch values),
+#        T5 (back-to-back alternating loads), T6 (4 MMIO addresses x 16 byte patterns), T7, Q4 reset
+TEST_PASS top_fpga_ooo_smoke 1077
+# mutants (each must FAIL):
+  M1 data_mem.we not gated for MMIO: TEST_FAIL top_fpga_ooo_smoke errs=8 of 1077
+  M2 mux on current read address: TEST_FAIL top_fpga_ooo_smoke errs=16 of 1077
+  M3 perf_counters.run not gated by done: TEST_FAIL top_fpga_ooo_smoke errs=3 of 1077
+  M4 switch upper half not zero: TEST_FAIL top_fpga_ooo_smoke errs=27 of 1077
+  M5 done never set: TEST_FAIL top_fpga_ooo_smoke errs=4 of 1077
+  M6 result never written: TEST_FAIL top_fpga_ooo_smoke errs=3 of 1077
+  M7 region decode on wrong nibble: TEST_FAIL top_fpga_ooo_smoke errs=8 of 1077
+# known survivor (documented): select also updated when dmem_read_ready=0 -> passes (no consumer reads data outside LW)
