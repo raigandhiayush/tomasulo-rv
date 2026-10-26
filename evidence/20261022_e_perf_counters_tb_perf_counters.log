@@ -1,0 +1,19 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-22 11:54:14 IST
+Owner (module): E   Run by: A
+Module: perf_counters
+Specification: blueprint 6.15, SIGNALS 2.16
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: iverilog -g2012 -I ooo_rtl -o simulation/build/tb_perf_counters ooo_rtl/perf_counters.v ooo_tests/tb_perf_counters.v && (cd simulation && vvp -n build/tb_perf_counters)
+Working directory: tomasulo-rv
+Commit: e01a870 +uncommitted changes
+Exit status: 0
+Simulated time: 1123406000 ps (10 ns clock => 112340 cycles)
+Wall time: 4s
+Test result: PASS
+Summary: TEST_PASS perf_counters 674060
+---
+coverage: run_events=529142 frozen_events=5590 all_events=105087 wraps=12 async_resets=12 combos=128 carries=186 glitches=10
+TEST_PASS perf_counters 674060
+ooo_tests/tb_perf_counters.v:329: $finish called at 1123406000 (1ps)
+---

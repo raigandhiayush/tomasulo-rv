@@ -1,0 +1,11 @@
+# date: 2026-10-20T15:03:11Z
+# tool: Icarus Verilog version 12.0 (stable) ()
+# commit: none (repo not in project; files from /mnt/project-files/toma-rv)
+# cmd (from toma-rv/): iverilog -g2012 -Wall -o build/pc.vvp rtl/perf_counters.v tb/tb_perf_counters.v && vvp -n build/pc.vvp
+coverage: run_events=529142 frozen_events=5590 all_events=105087 wraps=12 async_resets=12 combos=128 carries=186 glitches=10
+TEST_PASS perf_counters 674060
+tb/tb_perf_counters.v:329: $finish called at 1123406000 (1ps)
+# port audit: 14/14 ports match SIGNALS_REFERENCE 2.16 + conventions (name, direction, width); module name perf_counters; no parameters
+# lint: verilator 5.020 --lint-only -Wall rtl/perf_counters.v -> clean
+# synth: yosys 0.33 synth_xilinx -> 192 FDCE (6 x 32, async clear), 48 CARRY4, 0 latches, CHECK 0 problems
+# mutants: 18 RTL mutants -> 17 TEST_FAIL; 1 survivor (run_or_event) is equivalent: '!run' is always 0 inside the 'else if (run)' branch
