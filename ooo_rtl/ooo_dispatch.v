@@ -1,4 +1,5 @@
-// ooo_dispatch - Instruction rename, dispatch, and reservation station allocation.
+//  ooo_dispatch - decode glue, rename, allocate (owner: A, reviewer: C)
+//  PROJECT_BLUEPRINT.md 6.13, SIGNALS_REFERENCE.md 2.6, decisions D11-D16, D19.
 `timescale 1ns/1ps
 `include "ooo_defs.vh"
 
@@ -15,6 +16,12 @@ module ooo_dispatch
 	input       [31: 0]         fq_pc,
 	output                      fq_pop,
 	input                       hold,
+	input                       flush,              // mispredict recovery: dispatch nothing
+	input                       pred_taken,         // fetch prediction for this instruction
+	input       [31: 0]         pred_target,
+	input                       ck_full,            // no free RAT checkpoint
+	output                      ck_take,            // a conditional branch dispatches
+	output                      jal_learn,          // JAL not predicted: teach the BTB
 
 	input       [ 2: 0]         cls,
 	input                       illegal,
@@ -196,11 +203,15 @@ module ooo_dispatch
 	                (cls_mem & ~lq_full)     |
 	                 cls_pre;
 
+	wire spec     = (`SPEC_EN != 0);
+	wire ck_block = spec & is_branch & ck_full;
+	wire class_ok_spec = class_ok & ~ck_block;
+
 	wire try  = fq_valid & ~hold;
-	wire fire = try & ~rob_full & class_ok;
+	wire fire = try & ~rob_full & class_ok_spec & ~(spec & flush);
 
 	assign stall_rob = try & rob_full;
-	assign stall_rs  = try & ~rob_full & ~class_ok;
+	assign stall_rs  = try & ~rob_full & ~class_ok_spec;
 	assign fq_pop    = fire;
 
 	assign lk_rs1      = rs1;
@@ -232,7 +243,8 @@ module ooo_dispatch
 	assign rs_op[`OP_ALT_BIT]         = sub;
 	assign rs_op[`OP_BR_BIT]          = is_branch;
 	assign rs_op[`OP_JALR_BIT]        = is_jalr;
-	assign rs_op[`OP_W-1:`OP_JALR_BIT+1] = {(`OP_W-`OP_JALR_BIT-1){1'b0}};
+	assign rs_op[`OP_PRED_BIT]        = spec & is_branch & pred_taken;
+	assign rs_op[`OP_W-1:`OP_PRED_BIT+1] = {(`OP_W-`OP_PRED_BIT-1){1'b0}};
 
 	assign alu_al_valid    = fire & cls_alu;
 	assign alu_al_op       = rs_op;
@@ -279,9 +291,20 @@ module ooo_dispatch
 	assign lq_al_vk       = op2_value;
 	assign lq_al_imm      = imm;
 
-	assign redirect_valid = fire & is_jal;
-	assign redirect_pc    = br_target;
-	assign hold_set       = fire & (cls == `CLS_BR);
+	// Check the fetch prediction against the decoded instruction. JAL: go to the
+	// target unless fetch already went there. Branch: keep the predicted direction,
+	// but fix a wrong BTB target. Anything else predicted taken: back to pc + 4.
+	// JALR holds dispatch until it resolves, so its prediction does not matter.
+	wire pred_ok    = pred_taken & (pred_target == br_target);
+	wire fix_jal    = is_jal & ~pred_ok;
+	wire fix_branch = is_branch & pred_taken & ~pred_ok;
+	wire fix_other  = ~is_jal & ~is_branch & ~is_jalr & pred_taken;
+
+	assign redirect_valid = spec ? (fire & (fix_jal | fix_branch | fix_other)) : (fire & is_jal);
+	assign redirect_pc    = (spec & fix_other) ? (fq_pc + 32'd4) : br_target;
+	assign hold_set       = spec ? (fire & is_jalr) : (fire & (cls == `CLS_BR));
+	assign ck_take        = spec & fire & is_branch;
+	assign jal_learn      = spec & fire & fix_jal;
 
 	always @(posedge clk or negedge reset_n) begin
 		if (!reset_n)
