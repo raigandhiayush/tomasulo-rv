@@ -92,6 +92,7 @@
 	wire                	branch_stall;
 	wire                	md_freeze;
 	wire                	stall_all = stall_read | md_freeze;
+	wire                	id_exception;       // ID-stage flag, also set by squashed wrong-path words
 	reg                 	md_freeze_d;
 	reg         	[31:0] id_inst_sv;
 	reg         	[31:0] id_pc;
@@ -132,7 +133,7 @@ IF_ID_m IF_ID_stage (
 	.clk            	(clk),
 	.reset          	(reset),
 	.stall          	(stall),
-	.exception      	(exception),
+	.exception      	(id_exception),
 
 	// Instruction memory interface
 	.inst_mem_is_valid  (inst_mem_is_valid),
@@ -382,5 +383,19 @@ always @(posedge clk or negedge reset) begin
 end
 
 assign dbg_retire = wb_real && !stall_all;
+
+// exception (as D12 in the OoO core): set by an illegal instruction that really
+// executes (ex_real, so the zero words fetched behind a taken jump at the end of a
+// program no longer count) or by a misaligned fetch; stays 1 until reset.
+reg  exception_r;
+
+always @(posedge clk or negedge reset) begin
+	if (!reset)
+    	exception_r <= 1'b0;
+	else if ((!stall_all && ex_real && illegal_inst) || inst_mem_address[1:0] != 2'b00)
+    	exception_r <= 1'b1;
+end
+
+assign exception = exception_r;
 
 endmodule

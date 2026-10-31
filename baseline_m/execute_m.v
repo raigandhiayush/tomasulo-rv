@@ -87,6 +87,11 @@ assign ex_result_subs =
 
 assign ex_result_subu = {1'b0,alu_operand1}-{1'b0,alu_operand2};
 
+// SRA/SRAI on its own wire: inside ?: next to the unsigned SRL operand, Verilog
+// evaluates >>> unsigned, i.e. as a logical shift (the baseline execute.v bug).
+// Shift amounts use bits [4:0] only (RISC-V spec, baseline finding F5).
+wire [31:0] sra_result = $signed(alu_operand1) >>> alu_operand2[4:0];
+
 ////////////////////////////////////////////////////////////// Address & branch stall////////////////////////////////////////
 
 assign write_address = alu_operand1 + execute_imm;
@@ -234,8 +239,8 @@ always @(*) begin
             	XOR : ex_result = alu_operand1 ^ alu_operand2;
             	SR  : ex_result =
                   	arithsubtype
-                  	? $signed(alu_operand1) >>> alu_operand2
-                  	: alu_operand1 >> alu_operand2;
+                  	? sra_result
+                  	: alu_operand1 >> alu_operand2[4:0];
             	OR  : ex_result =alu_operand1 | alu_operand2;
             	AND : ex_result = alu_operand1 & alu_operand2;
             	default: ex_result = 'hx;

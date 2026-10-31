@@ -21,6 +21,9 @@
 ../ooo_rtl/mul_unit.v
 ../ooo_rtl/div_unit.v
 ../ooo_rtl/lsu.v
+../ooo_rtl/l1_dcache.v
+../ooo_rtl/bpred.v
+../ooo_rtl/mem_wait.v
 ../baseline_m/pipeline_m.v
 ../baseline_m/IF_ID_m.v
 ../baseline_m/execute_m.v

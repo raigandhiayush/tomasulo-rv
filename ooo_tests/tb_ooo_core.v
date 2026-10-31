@@ -1,4 +1,10 @@
-// tb_ooo_core - Self-checking testbench for pipe_ooo / ooo_core.
+//  tb_ooo_core - self-checking testbench for pipe_ooo / ooo_core (owner: A)
+//  Runs a directed program and N_RANDOM random RV32IM programs on pipe_ooo with
+//  the baseline instr_mem/data_mem, and checks every commit against an
+//  instruction-set model in this testbench: pc, rd, value, store address,
+//  data and byte lanes, plus the final register file and the exception flag.
+//  Run from simulation/ (instr_mem loads ../mem_generator/imem_dmem/imem.hex).
+//  Prints TEST_PASS ooo_core <n_checks> or TEST_FAIL lines.
 `timescale 1ns/1ps
 `include "ooo_defs.vh"
 
