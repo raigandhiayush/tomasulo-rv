@@ -1,6 +1,4 @@
 `timescale 1ns/1ps
-// rob.v - Reorder buffer (ROB) supporting multi-CDB completion and in-order commit.
-
 `include "ooo_defs.vh"
 
 module rob #(
@@ -17,6 +15,8 @@ module rob #(
     input  wire [`XLEN-1:0]         rob_al_pc,
     input  wire                     rob_al_pre,
     input  wire [`XLEN-1:0]         rob_al_value,
+    input  wire                     rob_al_cond,    // conditional branch
+    input  wire                     rob_al_exc,     // illegal instruction
     output wire [ROB_W-1:0]         rob_al_tag,
     output wire                     rob_full,
     output wire                     rob_empty,
@@ -40,6 +40,20 @@ module rob #(
     output wire [`XLEN-1:0]         cm_value,
     output wire                     cm_is_store,
     output wire [`XLEN-1:0]         cm_pc,
+    output wire                     cm_is_cond,
+    output wire                     cm_taken,
+    output wire                     cm_mispred,
+    output wire                     cm_exc,
+    // branch resolve: outcome, and the branch's pc for the recovery address
+    input  wire                     br_res_valid,
+    input  wire [ROB_W-1:0]         br_res_tag,
+    input  wire                     br_res_taken,
+    input  wire                     br_res_mispred,
+    output wire [`XLEN-1:0]         br_res_pc,
+    // mispredict recovery: remove everything younger than flush_tag
+    input  wire                     flush_valid,
+    input  wire [ROB_W-1:0]         flush_tag,
+    output reg  [ROB_N-1:0]         squash,
     // out-of-order completion evidence
     output reg                      ooo_event
 );
@@ -51,6 +65,11 @@ module rob #(
     reg  [`REG_W-1:0]       rd     [0:ROB_N-1];
     reg  [`XLEN-1:0]        value  [0:ROB_N-1];
     reg  [`XLEN-1:0]        pc     [0:ROB_N-1];
+    reg  [ROB_N-1:0]        is_cond;
+    reg  [ROB_N-1:0]        taken;
+    reg  [ROB_N-1:0]        mispred;
+    reg  [ROB_N-1:0]        exc;
+    reg  [ROB_N-1:0]        ooo_done;           // completed while an older entry waited
 
     reg  [ROB_W-1:0]        head;
     reg  [ROB_W-1:0]        tail;
@@ -82,15 +101,38 @@ module rob #(
     assign cm_value    = value[head];
     assign cm_is_store = (kind[head] == `KIND_STORE);
     assign cm_pc       = pc[head];
+    assign cm_is_cond  = is_cond[head];
+    assign cm_taken    = taken[head];
+    assign cm_mispred  = mispred[head];
+    assign cm_exc      = exc[head];
+    assign br_res_pc   = pc[br_res_tag];
+
+    // ---- mispredict recovery -------------------------------------------------
+    // ROB_N is a power of 2, so ROB_W-bit subtraction gives the distance from head.
+    wire [ROB_W-1:0] flush_dist = flush_tag - head;
+    reg  [ROB_W-1:0] sq_t;
+    integer s;
+    always @(*) begin
+        squash = {ROB_N{1'b0}};
+        for (s = 0; s < ROB_N; s = s + 1) begin
+            sq_t = s[ROB_W-1:0] - head;
+            if (flush_valid && valid[s] && sq_t > flush_dist) squash[s] = 1'b1;
+        end
+    end
 
     // ---- ooo_event (D18) ----------------------------------------------------
+    // With speculation, a wrong-path completion must not count, and only commit
+    // knows which path was right: the event is one committed instruction that
+    // finished while an older one was still waiting.
     integer k;
+    reg     ooo_now;
     always @(*) begin
-        ooo_event = 1'b0;
+        ooo_now = 1'b0;
         for (k = 0; k < `NCDB; k = k + 1)
             if (cdb_valid[k] && cdb_tag[k*ROB_W +: ROB_W] != head &&
                 valid[head] && !ready[head])
-                ooo_event = 1'b1;
+                ooo_now = 1'b1;
+        ooo_event = (`SPEC_EN != 0) ? (cm_valid & ooo_done[head]) : ooo_now;
     end
 
     // ---- state --------------------------------------------------------------
@@ -100,6 +142,11 @@ module rob #(
             valid  <= {ROB_N{1'b0}};
             ready  <= {ROB_N{1'b0}};
             has_rd <= {ROB_N{1'b0}};
+            is_cond  <= {ROB_N{1'b0}};
+            taken    <= {ROB_N{1'b0}};
+            mispred  <= {ROB_N{1'b0}};
+            exc      <= {ROB_N{1'b0}};
+            ooo_done <= {ROB_N{1'b0}};
             head   <= {ROB_W{1'b0}};
             tail   <= {ROB_W{1'b0}};
             count  <= {(ROB_W+1){1'b0}};
@@ -115,9 +162,17 @@ module rob #(
                 if (cdb_valid[b] && valid[cdb_tag[b*ROB_W +: ROB_W]]) begin
                     ready[cdb_tag[b*ROB_W +: ROB_W]] <= 1'b1;
                     value[cdb_tag[b*ROB_W +: ROB_W]] <= cdb_value[b*`XLEN +: `XLEN];
+                    if (cdb_tag[b*ROB_W +: ROB_W] != head && valid[head] && !ready[head])
+                        ooo_done[cdb_tag[b*ROB_W +: ROB_W]] <= 1'b1;
                 end
 
-            // Commit and free head entry.
+            if (br_res_valid) begin
+                taken[br_res_tag]   <= br_res_taken;
+                mispred[br_res_tag] <= br_res_mispred;
+            end
+
+            // commit frees the head (tail != head unless full, and a full ROB
+            // ignores allocation, so commit and allocate never hit one entry)
             if (do_commit) begin
                 valid[head] <= 1'b0;
                 ready[head] <= 1'b0;
@@ -132,12 +187,42 @@ module rob #(
                 rd[tail]     <= rob_al_rd;
                 value[tail]  <= rob_al_pre ? rob_al_value : {`XLEN{1'b0}};
                 pc[tail]     <= rob_al_pc;
+                is_cond[tail]  <= rob_al_cond;
+                taken[tail]    <= 1'b0;
+                mispred[tail]  <= 1'b0;
+                exc[tail]      <= rob_al_exc;
+                ooo_done[tail] <= 1'b0;
                 tail         <= tail_next;
             end
 
             if (do_alloc && !do_commit)      count <= count + 1'b1;
             else if (!do_alloc && do_commit) count <= count - 1'b1;
+
+            // recovery runs last so it overrides a completion in the same cycle.
+            // Dispatch sends nothing in a flush cycle, so there is no allocation.
+            if (flush_valid) begin
+                for (i = 0; i < ROB_N; i = i + 1)
+                    if (squash[i]) begin
+                        valid[i] <= 1'b0;
+                        ready[i] <= 1'b0;
+                    end
+                tail  <= (flush_tag == ROB_N-1) ? {ROB_W{1'b0}} : flush_tag + 1'b1;
+                count <= {1'b0, flush_dist} + 1'b1 - (do_commit ? 1'b1 : 1'b0);
+            end
         end
     end
+
+    // synthesis translate_off
+    // A stale tag is the classic speculation bug: a squashed instruction still in a
+    // functional unit completing a newer instruction that reused its ROB entry.
+    // Broadcasting to a free entry means something was not killed.
+    integer c_b;
+    always @(posedge clk)
+        if (reset_n)
+            for (c_b = 0; c_b < `NCDB; c_b = c_b + 1)
+                if (cdb_valid[c_b] === 1'b1 && valid[cdb_tag[c_b*ROB_W +: ROB_W]] === 1'b0)
+                    $display("TEST_FAIL rob stale broadcast: bus %0d tag %0d is not allocated (t=%0t)",
+                             c_b, cdb_tag[c_b*ROB_W +: ROB_W], $time);
+    // synthesis translate_on
 
 endmodule
