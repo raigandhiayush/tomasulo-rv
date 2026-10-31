@@ -26,7 +26,8 @@ module rs_array #(
       output [`XLEN-1:0] iss_vj,
       output [`XLEN-1:0] iss_vk,
       output [`XLEN-1:0] iss_a,
-      input iss_accept
+      input iss_accept,
+      input [(1<<`ROB_W)-1:0] squash     // ROB entries being removed
 );
       localparam AW = (N > 1) ? $clog2(N) : 1;   // age / entry-index width
       reg [N-1:0] busy;
@@ -44,7 +45,9 @@ module rs_array #(
       assign rs_full=&busy;
       assign ready=busy&(~qj_valid)&(~qk_valid);
       assign iss_valid=|ready;
-      integer i, j, k, m;
+      integer i, j, k, m, n, p;
+      reg [AW:0] younger;
+      wire sq_any=|squash;
       reg [AW-1:0] sel;
       reg [AW-1:0] free_rs;
       reg found;
@@ -131,6 +134,30 @@ module rs_array #(
                   if(iss_valid && iss_accept)
                   begin
                         busy[sel]<=1'b0;
+                  end
+                  // mispredict recovery: drop squashed entries, and re-count each
+                  // survivor's age as the number of surviving younger entries
+                  if(sq_any)
+                  begin
+                        for(n=0; n<N; n=n+1)
+                        begin
+                              if(busy[n] && squash[e_tag[n]])
+                              begin
+                                    busy[n]<=1'b0;
+                              end
+                              else if(busy[n])
+                              begin
+                                    younger=0;
+                                    for(p=0; p<N; p=p+1)
+                                    begin
+                                          if(busy[p] && !squash[e_tag[p]] && !(iss_valid && iss_accept && sel==p) && age[p]<age[n])
+                                          begin
+                                                younger=younger+1;
+                                          end
+                                    end
+                                    age[n]<=younger[AW-1:0];
+                              end
+                        end
                   end
             end
       end
