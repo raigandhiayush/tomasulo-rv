@@ -1,4 +1,9 @@
-## Nexys A7-100T FPGA board constraints for top_fpga_ooo.
+## top_fpga_ooo.xdc - Nexys A7-100T (xc7a100tcsg324-1) constraints for top_fpga_ooo
+## (owner: E, reviewer: B). Pins and IOSTANDARDs copied from Digilent's master file
+## https://raw.githubusercontent.com/Digilent/digilent-xdc/master/Nexys-A7-100T-Master.xdc
+## (fetched 21 Oct 2026), renamed to our ports; the LED pins match baseline_fpga/constraint.xdc.
+## reset uses the CPU_RESETN button (C12, active low), not SW0/J15 as the baseline did,
+## so that all 16 switches are free for sw[15:0] (D23, decided 21 Oct).
 
 ## 100 MHz clock; the 50 MHz core clock is derived by the MMCM (D7) automatically
 set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { clk }]
