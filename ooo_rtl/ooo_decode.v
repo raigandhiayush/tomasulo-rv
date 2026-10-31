@@ -1,27 +1,28 @@
+`timescale 1ns/1ps
 `include "ooo_defs.vh"
 
 module ooo_decode #(
     parameter SUPPORT_AUIPC = 0
 ) (
-    input  wire [31:0] inst,
-    input  wire [31:0] pc,
-    output reg  [2:0]  cls,
+    input  wire [`XLEN-1:0]  inst,
+    input  wire [`XLEN-1:0]  pc,
+    output reg  [`CLS_W-1:0] cls,
     output reg         illegal,
-    output reg  [2:0]  funct3,
+    output reg  [`F3_W-1:0]  funct3,
     output reg         sub,
-    output reg  [4:0]  rs1,
-    output reg  [4:0]  rs2,
-    output reg  [4:0]  rd,
+    output reg  [`REG_W-1:0] rs1,
+    output reg  [`REG_W-1:0] rs2,
+    output reg  [`REG_W-1:0] rd,
     output reg         uses_rs1,
     output reg         uses_rs2,
     output reg         writes_rd,
     output reg         use_imm,
-    output reg  [31:0] imm,
-    output reg  [31:0] pre_value,
+    output reg  [`XLEN-1:0]  imm,
+    output reg  [`XLEN-1:0]  pre_value,
     output reg         is_jal,
     output reg         is_jalr,
     output reg         is_branch,
-    output reg  [31:0] br_target
+    output reg  [`XLEN-1:0]  br_target
 );
 
     localparam [6:0] OP_LUI    = 7'b0110111;
