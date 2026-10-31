@@ -56,6 +56,18 @@ module tb_top_fpga_ooo;
 		end
 	end
 
+	// memory as the program sees it: a write-back cache may hold newer data than data_mem
+	function [31:0] mem_view(input integer word);
+		integer l;
+		begin
+			mem_view = DUT.U_DMEM.dmem[word];
+			for (l = 0; l < `DC_WAYS * `DC_SETS; l = l + 1)
+				if (DUT.U_CORE.core.g_dcache.dcache.valid[l] && (l % `DC_SETS) == ((word >> $clog2(`DC_WORDS)) & (`DC_SETS - 1)) &&
+				    DUT.U_CORE.core.g_dcache.dcache.tags[l] == (word >> ($clog2(`DC_WORDS) + $clog2(`DC_SETS))))
+					mem_view = DUT.U_CORE.core.g_dcache.dcache.data[l * `DC_WORDS + (word & (`DC_WORDS - 1))];
+		end
+	endfunction
+
 	// ---- display decode --------------------------------------------------------
 	function [6:0] font(input [3:0] n);
 		case (n)
@@ -133,24 +145,24 @@ module tb_top_fpga_ooo;
 			check(DUT.result === 32'd3, "T6 result unchanged by other MMIO stores / T7 RAM stores", DUT.result, 3);
 
 			// ---- T4, T5: values the program loaded and stored to 0x200..
-			check(DUT.U_DMEM.dmem[32'h200 >> 2] === {16'd0, sw}, "T4 lw switches", DUT.U_DMEM.dmem[32'h200 >> 2], {16'd0, sw});
-			check(DUT.U_DMEM.dmem[32'h204 >> 2] === 32'h1122_3344, "T5 lw RAM between switch loads", DUT.U_DMEM.dmem[32'h204 >> 2], 32'h1122_3344);
-			check(DUT.U_DMEM.dmem[32'h208 >> 2] === {16'd0, sw}, "T5 lw switches after RAM", DUT.U_DMEM.dmem[32'h208 >> 2], {16'd0, sw});
-			check(DUT.U_DMEM.dmem[32'h20C >> 2] === 32'd0, "T5 lw other MMIO address reads 0", DUT.U_DMEM.dmem[32'h20C >> 2], 0);
-			check(DUT.U_DMEM.dmem[32'h210 >> 2] === {16'd0, sw}, "T4 lhu switches", DUT.U_DMEM.dmem[32'h210 >> 2], {16'd0, sw});
-			check(DUT.U_DMEM.dmem[32'h214 >> 2] === {24'd0, sw[15:8]}, "T4 lbu switches byte 1", DUT.U_DMEM.dmem[32'h214 >> 2], {24'd0, sw[15:8]});
-			check(DUT.U_DMEM.dmem[32'h218 >> 2] === 32'd0, "T5 lw of the result address reads 0", DUT.U_DMEM.dmem[32'h218 >> 2], 0);
+			check(mem_view(32'h200 >> 2) === {16'd0, sw}, "T4 lw switches", mem_view(32'h200 >> 2), {16'd0, sw});
+			check(mem_view(32'h204 >> 2) === 32'h1122_3344, "T5 lw RAM between switch loads", mem_view(32'h204 >> 2), 32'h1122_3344);
+			check(mem_view(32'h208 >> 2) === {16'd0, sw}, "T5 lw switches after RAM", mem_view(32'h208 >> 2), {16'd0, sw});
+			check(mem_view(32'h20C >> 2) === 32'd0, "T5 lw other MMIO address reads 0", mem_view(32'h20C >> 2), 0);
+			check(mem_view(32'h210 >> 2) === {16'd0, sw}, "T4 lhu switches", mem_view(32'h210 >> 2), {16'd0, sw});
+			check(mem_view(32'h214 >> 2) === {24'd0, sw[15:8]}, "T4 lbu switches byte 1", mem_view(32'h214 >> 2), {24'd0, sw[15:8]});
+			check(mem_view(32'h218 >> 2) === 32'd0, "T5 lw of the result address reads 0", mem_view(32'h218 >> 2), 0);
 
 			// ---- T6, T7: aliased words untouched, plain RAM stores landed
 			for (i = 0; i < 5; i = i + 1)
-				check(DUT.U_DMEM.dmem[sent_idx[i]] === sentinel[i], "T6 data_mem word aliased by an MMIO store changed",
-				      DUT.U_DMEM.dmem[sent_idx[i]], sentinel[i]);
-			check(DUT.U_DMEM.dmem[32'h100 >> 2] === 32'h1122_3344, "T7 store to 0x0000_0100", DUT.U_DMEM.dmem[32'h100 >> 2], 32'h1122_3344);
-			check(DUT.U_DMEM.dmem[1023] === 32'h1122_3344, "T7 store to 0x0FFF_FFFC", DUT.U_DMEM.dmem[1023], 32'h1122_3344);
+				check(mem_view(sent_idx[i]) === sentinel[i], "T6 data_mem word aliased by an MMIO store changed",
+				      mem_view(sent_idx[i]), sentinel[i]);
+			check(mem_view(32'h100 >> 2) === 32'h1122_3344, "T7 store to 0x0000_0100", mem_view(32'h100 >> 2), 32'h1122_3344);
+			check(mem_view(1023) === 32'h1122_3344, "T7 store to 0x0FFF_FFFC", mem_view(1023), 32'h1122_3344);
 
 			// ---- T8: sorted array
-			check(DUT.U_DMEM.dmem[32'h300 >> 2] === 3 && DUT.U_DMEM.dmem[32'h304 >> 2] === 6 &&
-			      DUT.U_DMEM.dmem[32'h308 >> 2] === 9, "T8 sorted array {3,6,9}", DUT.U_DMEM.dmem[32'h300 >> 2], 3);
+			check(mem_view(32'h300 >> 2) === 3 && mem_view(32'h304 >> 2) === 6 &&
+			      mem_view(32'h308 >> 2) === 9, "T8 sorted array {3,6,9}", mem_view(32'h300 >> 2), 3);
 
 			// ---- D21 counting rule and T3 freeze
 			@(negedge clk);
@@ -165,12 +177,17 @@ module tb_top_fpga_ooo;
 			check(DUT.exception === 1'b0, "no exception", DUT.exception, 0);
 			check(led === {1'b1, 1'b0, 14'd3}, "led = {done, exception, result[13:0]}", {16'd0, led}, {16'd0, 1'b1, 1'b0, 14'd3});
 
-			// ---- display: value selected by sw[15:14]
-			case (sw[15:14])
-				2'b00:   check_display(DUT.result);
-				2'b01:   check_display(DUT.U_PERF.cycles);
-				2'b10:   check_display(DUT.U_PERF.retired);
-				default: check_display(DUT.U_PERF.ooo_count);
+			// ---- display: value selected by sw[15:14], cache page when sw[13] = 1
+			if (sw[12]) check_display(sw[14] ? DUT.U_PERF.mispredict_count : DUT.U_PERF.branch_count);
+			else case (sw[15:13])
+				3'b000:  check_display(DUT.result);
+				3'b010:  check_display(DUT.U_PERF.cycles);
+				3'b100:  check_display(DUT.U_PERF.retired);
+				3'b110:  check_display(DUT.U_PERF.ooo_count);
+				3'b001:  check_display(DUT.U_PERF.dcache_access_count);
+				3'b011:  check_display(DUT.U_PERF.dcache_hit_count);
+				3'b101:  check_display(DUT.U_PERF.dcache_miss_count);
+				default: check_display(DUT.U_PERF.dcache_stall_cycles);
 			endcase
 
 			run_cycles[r]  = DUT.U_PERF.cycles;

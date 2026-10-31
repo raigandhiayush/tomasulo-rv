@@ -1,5 +1,21 @@
-// regfile_2r1w.v - RV32 integer register file (31 registers, 2 read ports, 1 write port).
+// regfile_2r1w.v - RV32 integer register file for TOMA-RV (Person E)
 `timescale 1ns/1ps
+// 31 x 32-bit registers (x1..x31), 2 read ports, 1 write port.
+//
+// Contract:
+//   * x0 always reads 0; a write to x0 is ignored.
+//   * reset_n is active low and asynchronous (baseline convention, same as
+//     div_unit): clears x1..x31.
+//   * Reads are combinational from the array and return the value held at
+//     the start of the cycle. There is NO write-through: a read of the
+//     register being written in the same cycle returns the OLD value; the
+//     new value is visible from the next cycle. Any bypass belongs to the
+//     rename / operand-read logic, not here.
+//
+// Because every register is reset, synthesis builds this from flip-flops
+// (31 x 32 = 992 FFs) rather than LUTRAM. That is fine on the Nexys A7.
+//
+// Pure Verilog-2001, no vendor primitives.
 
 `include "ooo_defs.vh"
 
