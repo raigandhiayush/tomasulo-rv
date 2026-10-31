@@ -1,0 +1,33 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-26 15:27:24 IST
+Owner (module): D   Run by: A
+Module: D8 C workloads (mem_generator/code_*_d8.c) + tools/check_elf.py + tools/ref_model.py
+Specification: blueprint 6.17 (workloads, check_elf, reference model), F2/F3, D17
+Tool: riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0; GNU assembler (2.42-1ubuntu1+6) 2.42 (Ubuntu noble packages gcc-riscv64-unknown-elf 13.2.0-11ubuntu1+12, binutils-riscv64-unknown-elf 2.42-1ubuntu1+6)
+Command: bash tools/build_test_programs.sh   (with riscv64-unknown-elf-* on PATH)
+Working directory: tomasulo-rv
+Commit: 53f64cd +uncommitted changes
+Exit status: 0
+Test result: PASS
+---
+ooo_tests/programs/top_mmio.hex: 92 commits, done=1 result=0x00000003 exception=0
+ooo_tests/programs/ooo_trace.hex: 14 commits, done=1 result=0x0000021e exception=0
+ooo_tests/programs/rv32m_edge.hex: 74 commits, done=1 result=0x4000000e exception=0
+ooo_tests/programs/base_rv32i.hex: 310 commits, done=1 result=0x00004082 exception=0
+ooo_tests/programs/pipe_m_edge.hex: 47 commits, done=1 result=0xb903a8f9 exception=0
+mem_generator/imem_dmem/imem.hex: 200 commits, done=0 result=0x00000000 exception=0
+code.elf: OK (19 instructions, no unresolved relocations, no data, 1 local branch/jump relocation(s) verified resolved)
+code.elf: OK (73 instructions, no unresolved relocations, no data, 5 local branch/jump relocation(s) verified resolved)
+code.elf: OK (19 instructions, no unresolved relocations, no data, 1 local branch/jump relocation(s) verified resolved)
+code.elf: OK (19 instructions, no unresolved relocations, no data, 1 local branch/jump relocation(s) verified resolved)
+code.elf: OK (26 instructions, no unresolved relocations, no data, 3 local branch/jump relocation(s) verified resolved)
+code.elf: OK (53 instructions, no unresolved relocations, no data, 3 local branch/jump relocation(s) verified resolved)
+code.elf: OK (120 instructions, no unresolved relocations, no data, 8 local branch/jump relocation(s) verified resolved)
+ooo_tests/programs/addition_d8.hex: 18 commits, done=1 result=0x00000066 exception=0
+ooo_tests/programs/sort_d8.hex: 127 commits, done=1 result=0x00000003 exception=0
+ooo_tests/programs/negative_d8.hex: 18 commits, done=1 result=0xffffffd2 exception=0
+ooo_tests/programs/xor_d8.hex: 18 commits, done=1 result=0x00000009 exception=0
+ooo_tests/programs/mul_d8.hex: 78 commits, done=1 result=0x000013b0 exception=0
+ooo_tests/programs/div_d8.hex: 102 commits, done=1 result=0x00003b26 exception=0
+ooo_tests/programs/rv32m_d8.hex: 119 commits, done=1 result=0x0000007f exception=0
+---
