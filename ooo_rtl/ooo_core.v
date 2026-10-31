@@ -1,4 +1,5 @@
-// ooo_core - Out-of-order core top module.
+//  ooo_core - top of the out-of-order core (owner: A, reviewers: B, C)
+//  PROJECT_BLUEPRINT.md 6.14, SIGNALS_REFERENCE.md 2.2, decisions D14, D18, D19.
 `timescale 1ns/1ps
 `include "ooo_defs.vh"
 
@@ -16,6 +17,8 @@ module ooo_core
 	output                      dmem_re,
 	output      [31: 0]         dmem_raddr,
 	input       [31: 0]         dmem_rdata,
+	input                       dmem_read_valid,    // 0: a read is outstanding (mem_wait)
+	input                       dmem_write_valid,   // 0: write buffer full
 	output                      dmem_we,
 	output      [31: 0]         dmem_waddr,
 	output      [31: 0]         dmem_wdata,
@@ -33,7 +36,15 @@ module ooo_core
 	output                      dbg_stall_rob,
 	output                      dbg_stall_rs,
 	output                      dbg_hold,
-	output      [`NCDB-1:0]     dbg_cdb_valid
+	output      [`NCDB-1:0]     dbg_cdb_valid,
+	// L1 data cache events (perf_counters): one-cycle pulses, stall is a level
+	output                      dbg_dc_access,
+	output                      dbg_dc_hit,
+	output                      dbg_dc_miss,
+	output                      dbg_dc_stall,
+	// branch prediction (perf_counters): committed conditional branches
+	output                      dbg_br_commit,
+	output                      dbg_br_mispred
 );
 
 	wire    [`NCDB-1:0]         cdb_valid;
@@ -51,6 +62,23 @@ module ooo_core
 	wire                        br_valid;
 	wire                        br_taken;
 	wire    [31: 0]             br_target;
+
+	// ---- branch speculation ---------------------------------------------------
+	wire                        spec = (`SPEC_EN != 0);
+	wire                        fq_pred;
+	wire    [31: 0]             fq_target;
+	wire                        pred_taken;
+	wire    [31: 0]             pred_target;
+	wire                        ck_full, ck_take, jal_learn;
+	reg                         flush_valid;        // registered: mispredict recovery cycle
+	reg     [`ROB_W-1:0]        flush_tag;
+	reg     [31: 0]             flush_pc;
+	wire    [(1<<`ROB_W)-1:0]   squash;
+	wire    [31: 0]             br_res_pc;
+	wire                        cm_is_cond, cm_taken, cm_mispred, cm_exc;
+	wire                        d_exception;
+	wire                        alu_br, alu_mispred, fe_br_valid;
+	reg                         cm_exception;
 
 	wire    [`CLS_W-1:0]        d_cls;
 	wire                        d_illegal;
@@ -145,13 +173,19 @@ module ooo_core
 		.redirect_valid (redirect_valid),
 		.redirect_pc    (redirect_pc),
 		.hold_set       (hold_set),
-		.br_valid       (br_valid),
+		.br_valid       (fe_br_valid),
 		.br_taken       (br_taken),
 		.br_target      (br_target),
+		.flush_valid    (flush_valid),
+		.flush_pc       (flush_pc),
+		.pred_taken     (pred_taken),
+		.pred_target    (pred_target),
 		.fq_pop         (fq_pop),
 		.fq_valid       (fq_valid),
 		.fq_pc          (fq_pc),
 		.fq_inst        (fq_inst),
+		.fq_pred        (fq_pred),
+		.fq_target      (fq_target),
 		.hold           (hold)
 	);
 
@@ -184,6 +218,12 @@ module ooo_core
 		.fq_pc           (fq_pc),
 		.fq_pop          (fq_pop),
 		.hold            (hold),
+		.flush           (flush_valid),
+		.pred_taken      (fq_pred),
+		.pred_target     (fq_target),
+		.ck_full         (ck_full),
+		.ck_take         (ck_take),
+		.jal_learn       (jal_learn),
 		.cls             (d_cls),
 		.illegal         (d_illegal),
 		.funct3          (d_funct3),
@@ -278,7 +318,7 @@ module ooo_core
 		.redirect_valid  (redirect_valid),
 		.redirect_pc     (redirect_pc),
 		.hold_set        (hold_set),
-		.exception       (exception),
+		.exception       (d_exception),
 		.stall_rob       (stall_rob),
 		.stall_rs        (stall_rs)
 	);
@@ -297,7 +337,15 @@ module ooo_core
 		.al_tag   (al_tag),
 		.cm_valid (cm_valid & cm_has_rd),
 		.cm_rd    (cm_rd),
-		.cm_tag   (cm_tag)
+		.cm_tag   (cm_tag),
+		.ck_take        (ck_take),
+		.ck_tag_in      (rob_al_tag),
+		.ck_release     (alu_br & ~alu_mispred),
+		.ck_release_tag (alu_iss_tag),
+		.restore        (flush_valid),
+		.restore_tag    (flush_tag),
+		.squash         (squash),
+		.ck_full        (ck_full)
 	);
 
 	regfile_2r1w regfile (
@@ -322,6 +370,8 @@ module ooo_core
 		.rob_al_pc     (rob_al_pc),
 		.rob_al_pre    (rob_al_pre),
 		.rob_al_value  (rob_al_value),
+		.rob_al_cond   (d_is_branch),
+		.rob_al_exc    (d_cls == `CLS_NOP),
 		.rob_al_tag    (rob_al_tag),
 		.rob_full      (rob_full),
 		.rob_empty     (),
@@ -342,6 +392,18 @@ module ooo_core
 		.cm_value      (cm_value),
 		.cm_is_store   (cm_is_store),
 		.cm_pc         (cm_pc),
+		.cm_is_cond    (cm_is_cond),
+		.cm_taken      (cm_taken),
+		.cm_mispred    (cm_mispred),
+		.cm_exc        (cm_exc),
+		.br_res_valid  (alu_br),
+		.br_res_tag    (alu_iss_tag),
+		.br_res_taken  (alu_taken),
+		.br_res_mispred(alu_mispred),
+		.br_res_pc     (br_res_pc),
+		.flush_valid   (flush_valid),
+		.flush_tag     (flush_tag),
+		.squash        (squash),
 		.ooo_event     (ooo_event)
 	);
 
@@ -368,7 +430,8 @@ module ooo_core
 		.iss_vj         (alu_iss_vj),
 		.iss_vk         (alu_iss_vk),
 		.iss_a          (alu_iss_a),
-		.iss_accept     (alu_iss_valid)
+		.iss_accept     (alu_iss_valid),
+		.squash         (squash)
 	);
 
 	alu_fu alu (
@@ -405,7 +468,8 @@ module ooo_core
 		.iss_vj         (mul_iss_vj),
 		.iss_vk         (mul_iss_vk),
 		.iss_a          (mul_iss_a),
-		.iss_accept     (mul_iss_valid)
+		.iss_accept     (mul_iss_valid),
+		.squash         (squash)
 	);
 
 	mul_unit mul (
@@ -416,6 +480,7 @@ module ooo_core
 		.a        (mul_iss_vj),
 		.b        (mul_iss_vk),
 		.tag      (mul_iss_tag),
+		.squash   (squash),
 		.done     (cdb_valid[`CDB_MUL]),
 		.done_tag (cdb_tag[`CDB_MUL*`ROB_W +: `ROB_W]),
 		.result   (cdb_value[`CDB_MUL*`XLEN +: `XLEN])
@@ -444,7 +509,8 @@ module ooo_core
 		.iss_vj         (div_iss_vj),
 		.iss_vk         (div_iss_vk),
 		.iss_a          (div_iss_a),
-		.iss_accept     (~div_busy)
+		.iss_accept     (~div_busy),
+		.squash         (squash)
 	);
 
 	div_unit div (
@@ -455,11 +521,17 @@ module ooo_core
 		.a        (div_iss_vj),
 		.b        (div_iss_vk),
 		.tag      (div_iss_tag),
+		.squash   (squash),
 		.busy     (div_busy),
 		.done     (cdb_valid[`CDB_DIV]),
 		.done_tag (cdb_tag[`CDB_DIV*`ROB_W +: `ROB_W]),
 		.result   (cdb_value[`CDB_DIV*`XLEN +: `XLEN])
 	);
+
+	// LSU <-> L1 data cache
+	wire                        lsu_re, lsu_we, lsu_stall, lsu_rvalid;
+	wire    [31: 0]             lsu_raddr, lsu_rdata, lsu_waddr, lsu_wdata;
+	wire    [ 3: 0]             lsu_wstrb;
 
 	lsu lsu (
 		.clk            (clk),
@@ -485,22 +557,127 @@ module ooo_core
 		.cm_valid       (cm_valid),
 		.cm_tag         (cm_tag),
 		.cm_is_store    (cm_is_store),
-		.dmem_re        (dmem_re),
-		.dmem_raddr     (dmem_raddr),
-		.dmem_rdata     (dmem_rdata),
-		.dmem_we        (dmem_we),
-		.dmem_waddr     (dmem_waddr),
-		.dmem_wdata     (dmem_wdata),
-		.dmem_wstrb     (dmem_wstrb)
+		.squash         (squash),
+		.dmem_re        (lsu_re),
+		.dmem_raddr     (lsu_raddr),
+		.dmem_rdata     (lsu_rdata),
+		.dmem_stall     (lsu_stall),
+		.dmem_rvalid    (lsu_rvalid),
+		.dmem_we        (lsu_we),
+		.dmem_waddr     (lsu_waddr),
+		.dmem_wdata     (lsu_wdata),
+		.dmem_wstrb     (lsu_wstrb)
 	);
+
+	// ---- L1 data cache between the LSU and the memory port (DC_EN = 0: none) ----
+	// The LSU never reads and writes in the same cycle (both need the queue head,
+	// which is either a load or a store), so its two ports merge into one request.
+	generate
+		if (`DC_EN) begin : g_dcache
+			l1_dcache dcache (
+				.clk         (clk),
+				.reset_n     (reset_n),
+				.req_valid   (lsu_re | lsu_we),
+				.req_we      (lsu_we),
+				.req_addr    (lsu_we ? lsu_waddr : lsu_raddr),
+				.req_wdata   (lsu_wdata),
+				.req_byte_en (lsu_wstrb),
+				.stall       (lsu_stall),
+				.resp_ready  (lsu_rvalid),
+				.resp_data   (lsu_rdata),
+				.mem_re      (dmem_re),
+				.mem_raddr   (dmem_raddr),
+				.mem_rdata   (dmem_rdata),
+				.mem_read_valid  (dmem_read_valid),
+				.mem_write_valid (dmem_write_valid),
+				.mem_we      (dmem_we),
+				.mem_waddr   (dmem_waddr),
+				.mem_wdata   (dmem_wdata),
+				.mem_wstrb   (dmem_wstrb),
+				.ev_access   (dbg_dc_access),
+				.ev_hit      (dbg_dc_hit),
+				.ev_miss     (dbg_dc_miss),
+				.ev_stall    (dbg_dc_stall)
+			);
+		end else begin : g_no_dcache
+			assign dmem_re       = lsu_re;
+			assign dmem_raddr    = lsu_raddr;
+			assign dmem_we       = lsu_we;
+			assign dmem_waddr    = lsu_waddr;
+			assign dmem_wdata    = lsu_wdata;
+			assign dmem_wstrb    = lsu_wstrb;
+			assign lsu_rdata     = dmem_rdata;
+			assign lsu_stall     = ~dmem_read_valid | ~dmem_write_valid;
+			assign lsu_rvalid    = dmem_read_valid;
+			assign dbg_dc_access = 1'b0;
+			assign dbg_dc_hit    = 1'b0;
+			assign dbg_dc_miss   = 1'b0;
+			assign dbg_dc_stall  = 1'b0;
+		end
+	endgenerate
 
 	assign cdb_valid[`CDB_ALU]                  = alu_iss_valid;
 	assign cdb_tag[`CDB_ALU*`ROB_W +: `ROB_W]   = alu_iss_tag;
-	assign cdb_value[`CDB_ALU*`XLEN +: `XLEN]   = alu_result;
+	// a branch has no destination, so its bus value carries the target to the ROB,
+	// from where the committed branch trains the BTB
+	assign cdb_value[`CDB_ALU*`XLEN +: `XLEN]   = (spec & alu_iss_op[`OP_BR_BIT]) ? alu_target : alu_result;
 
 	assign br_valid  = alu_iss_valid & alu_is_ctrl;
 	assign br_taken  = alu_taken;
 	assign br_target = alu_target;
+
+	// ---- mispredict detection and recovery ------------------------------------
+	// Conditional branches resolve in the ALU; recovery runs one cycle later from
+	// registers (flush_*), so the ALU compare does not drive the whole machine in
+	// one cycle. A branch squashed by the recovery running right now is ignored.
+	assign  alu_br      = spec & alu_iss_valid & alu_iss_op[`OP_BR_BIT];
+	assign  alu_mispred = alu_br & (alu_taken != alu_iss_op[`OP_PRED_BIT]);
+	assign  fe_br_valid = spec ? (alu_iss_valid & alu_iss_op[`OP_JALR_BIT]) : br_valid;
+
+	always @(posedge clk or negedge reset_n) begin
+		if (!reset_n) begin
+			flush_valid <= 1'b0;
+			flush_tag   <= {`ROB_W{1'b0}};
+			flush_pc    <= 32'd0;
+		end else if (alu_mispred && !squash[alu_iss_tag]) begin
+			flush_valid <= 1'b1;
+			flush_tag   <= alu_iss_tag;
+			flush_pc    <= alu_taken ? alu_target : (br_res_pc + 32'd4);
+		end else
+			flush_valid <= 1'b0;
+	end
+
+	// an illegal instruction only counts once it commits (it may be on the wrong path)
+	always @(posedge clk or negedge reset_n) begin
+		if (!reset_n)                     cm_exception <= 1'b0;
+		else if (cm_valid && cm_exc)      cm_exception <= 1'b1;
+	end
+	assign exception = spec ? cm_exception : d_exception;
+
+	generate
+		if (`SPEC_EN != 0) begin : g_bpred
+			bpred bp (
+				.clk        (clk),
+				.reset_n    (reset_n),
+				.f_pc       (imem_addr),
+				.f_taken    (pred_taken),
+				.f_target   (pred_target),
+				.up_valid   (cm_valid & cm_is_cond),
+				.up_pc      (cm_pc),
+				.up_taken   (cm_taken),
+				.up_target  (cm_value),
+				.jal_valid  (jal_learn),
+				.jal_pc     (fq_pc),
+				.jal_target (d_br_target)
+			);
+		end else begin : g_no_bpred
+			assign pred_taken  = 1'b0;
+			assign pred_target = 32'd0;
+		end
+	endgenerate
+
+	assign dbg_br_commit  = cm_valid & cm_is_cond;
+	assign dbg_br_mispred = cm_valid & cm_is_cond & cm_mispred;
 
 	assign dbg_commit_valid    = cm_valid;
 	assign dbg_commit_pc       = cm_pc;
