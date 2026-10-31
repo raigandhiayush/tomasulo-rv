@@ -1,6 +1,4 @@
 `timescale 1ns/1ps
-// lsu.v - In-order load/store queue (LSQ) handling memory operations and CDB broadcasts.
-
 `include "ooo_defs.vh"
 
 module lsu #(
@@ -32,12 +30,16 @@ module lsu #(
     output wire [`XLEN-1:0]         cdb_lsu_value,
     // commit (ROB)
     input  wire                     cm_valid,
-    input  wire [ROB_W-1:0]         cm_tag,
+    input  wire [ROB_W-1:0]         cm_tag,         // also the ROB head
     input  wire                     cm_is_store,
+    // mispredict recovery: ROB entries being removed
+    input  wire [(1<<ROB_W)-1:0]    squash,
     // data memory
     output wire                     dmem_re,
     output wire [`XLEN-1:0]         dmem_raddr,
     input  wire [`XLEN-1:0]         dmem_rdata,
+    input  wire                     dmem_stall,     // cache busy: start nothing
+    input  wire                     dmem_rvalid,    // dmem_rdata holds the load's word
     output wire                     dmem_we,
     output wire [`XLEN-1:0]         dmem_waddr,
     output reg  [`XLEN-1:0]         dmem_wdata,
@@ -82,9 +84,15 @@ module lsu #(
     wire [`XLEN-1:0]  h_addr  = vj[head] + imm[head];
     wire [1:0]        h_off   = h_addr[1:0];
 
-    wire la_go     = h_busy & ~h_st & ~qj_valid[head];
+    // With speculation a load may be on the wrong path. Reading RAM is harmless,
+    // but an MMIO load waits until it is the oldest instruction in the machine.
+    wire spec      = (`SPEC_EN != 0);
+    wire h_mmio    = (h_addr[31:28] == 4'h1);
+    wire la_go     = h_busy & ~h_st & ~qj_valid[head] & ~dmem_stall
+                   & ~(spec & squash[tag[head]])
+                   & ~(spec & h_mmio & (tag[head] != cm_tag));
     wire sr_go     = h_busy &  h_st & ~sr_done[head] & ~qj_valid[head] & ~qk_valid[head]
-                   & ~ld_pend;                                   // D13
+                   & ~ld_pend & ~dmem_stall;                     // D13
     wire st_commit = h_busy &  h_st &  sr_done[head] & cm_valid & cm_is_store
                    & (cm_tag == tag[head]);
     wire do_pop    = la_go | st_commit;
@@ -127,9 +135,22 @@ module lsu #(
     end
 
     // ---- own bus: a load result (LW) or a store completion (SR), never both ----
-    assign cdb_lsu_valid = ld_pend | sr_go;
+    wire   ld_done       = ld_pend & dmem_rvalid;
+    assign cdb_lsu_valid = ld_done | sr_go;
     assign cdb_lsu_tag   = ld_pend ? ld_tag   : tag[head];
     assign cdb_lsu_value = ld_pend ? ld_value : {`XLEN{1'b0}};
+
+    // ---- mispredict recovery: squashed entries are a suffix of the queue ----------
+    integer q;
+    reg  [QW:0] n_sq;
+    always @(*) begin
+        n_sq = 0;
+        for (q = 0; q < LSQ_N; q = q + 1)
+            if (spec && busy[q] && squash[tag[q]]) n_sq = n_sq + 1'b1;
+    end
+    localparam [QW:0] LSQ_C = LSQ_N;
+    wire [QW:0] tail_ext = {1'b0, tail} + LSQ_C - n_sq;
+    wire [QW:0] tail_rew = (tail_ext >= LSQ_C) ? tail_ext - LSQ_C : tail_ext;
 
     // ---- state -------------------------------------------------------------------
     integer i, b;
@@ -171,13 +192,14 @@ module lsu #(
                         end
                     end
 
-            // load in flight: LA this cycle -> LW next cycle
-            ld_pend <= la_go;
+            // load in flight: from LA until its word arrives (LW)
             if (la_go) begin
-                ld_tag <= tag[head];
-                ld_f3  <= f3[head];
-                ld_off <= h_off;
-            end
+                ld_pend <= 1'b1;
+                ld_tag  <= tag[head];
+                ld_f3   <= f3[head];
+                ld_off  <= h_off;
+            end else if (ld_done)
+                ld_pend <= 1'b0;
 
             if (sr_go) sr_done[head] <= 1'b1;
 
@@ -186,7 +208,8 @@ module lsu #(
                 head       <= head_next;
             end
 
-            // Allocate new entry at tail.
+            // the tail slot is free whenever the queue is not full, so it never
+            // collides with the head being popped
             if (do_alloc) begin
                 busy[tail]     <= 1'b1;
                 is_st[tail]    <= lq_al_store;
@@ -205,6 +228,18 @@ module lsu #(
 
             if (do_alloc && !do_pop)      count <= count + 1'b1;
             else if (!do_alloc && do_pop) count <= count - 1'b1;
+
+            // Dispatch sends nothing in a flush cycle, so there is no allocation.
+            // A squashed load in flight just forgets its result; if the cache or
+            // memory is still working on it, dmem_stall holds the next operation.
+            if (n_sq != 0) begin
+                for (q = 0; q < LSQ_N; q = q + 1)
+                    if (busy[q] && squash[tag[q]]) busy[q] <= 1'b0;
+                tail  <= tail_rew[QW-1:0];
+                count <= count - n_sq - (do_pop ? 1'b1 : 1'b0);
+            end
+            if (spec && ld_pend && squash[ld_tag] && !la_go)
+                ld_pend <= 1'b0;
         end
     end
 

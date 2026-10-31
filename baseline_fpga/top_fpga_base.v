@@ -183,12 +183,24 @@ module top_fpga_base
 		.stall_rob           (dbg_stall_rob),
 		.stall_rs            (dbg_stall_rs),
 		.hold                (dbg_hold),
+		.dc_access           (1'b0),                // no data cache in the baselines
+		.dc_hit              (1'b0),
+		.dc_miss             (1'b0),
+		.dc_stall            (1'b0),
+		.br_commit           (1'b0),
+		.br_mispred          (1'b0),
 		.cycles              (cycles),
 		.retired             (retired),
 		.ooo_count           (ooo_count),
 		.rob_stall_cycles    (),
 		.rs_stall_cycles     (),
-		.hold_cycles         ()
+		.hold_cycles         (),
+		.dcache_access_count (),
+		.dcache_hit_count    (),
+		.dcache_miss_count   (),
+		.dcache_stall_cycles (),
+		.branch_count        (),
+		.mispredict_count    ()
 	);
 
 	// ---- LEDs and 7-segment display -----------------------------------------
