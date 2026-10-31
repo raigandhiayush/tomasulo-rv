@@ -106,8 +106,12 @@ module tbc_sys #(
 		.clk(clk), .reset_n(reset), .run(reset & ~done),
 		.commit_valid(commit_valid), .ooo_event(ooo_event),
 		.stall_rob(1'b0), .stall_rs(1'b0), .hold(1'b0),
+		.dc_access(1'b0), .dc_hit(1'b0), .dc_miss(1'b0), .dc_stall(1'b0),
+		.br_commit(1'b0), .br_mispred(1'b0),
 		.cycles(), .retired(), .ooo_count(),
-		.rob_stall_cycles(), .rs_stall_cycles(), .hold_cycles()
+		.rob_stall_cycles(), .rs_stall_cycles(), .hold_cycles(),
+		.dcache_access_count(), .dcache_hit_count(), .dcache_miss_count(), .dcache_stall_cycles(),
+		.branch_count(), .mispredict_count()
 	);
 
 endmodule
@@ -116,7 +120,7 @@ endmodule
 module tb_baseline_counters;
 
 	localparam NCORE   = 3;
-	localparam NPROG   = 5;
+	localparam NPROG   = 14;
 	localparam TIMEOUT = 50000;
 	localparam MAXL    = 8192;
 
@@ -145,6 +149,7 @@ module tb_baseline_counters;
 	reg     [8*256-1:0] arg_hex, arg_trace;
 	reg     [15: 0]     arg_sw;
 	integer             nprog;
+	reg                 use_arg;            // +hex= given: a missing file is an error, not a skip
 
 	initial begin
 		p_hex[0] = "../ooo_tests/programs/base_rv32i.hex";  p_trace[0] = "../ooo_tests/programs/base_rv32i.trace";  p_sw[0] = 16'h0000;
@@ -152,7 +157,19 @@ module tb_baseline_counters;
 		p_hex[2] = "../ooo_tests/programs/ooo_trace.hex";   p_trace[2] = "../ooo_tests/programs/ooo_trace.trace";   p_sw[2] = 16'h0000;
 		p_hex[3] = "../ooo_tests/programs/rv32m_edge.hex";  p_trace[3] = "../ooo_tests/programs/rv32m_edge.trace";  p_sw[3] = 16'h0000;
 		p_hex[4] = "../ooo_tests/programs/pipe_m_edge.hex"; p_trace[4] = "../ooo_tests/programs/pipe_m_edge.trace"; p_sw[4] = 16'h0000;
+		// D8 C workloads, built only where a RISC-V gcc exists (tools/build_test_programs.sh); skipped if absent
+		p_hex[5] = "../ooo_tests/programs/addition_d8.hex"; p_trace[5] = "../ooo_tests/programs/addition_d8.trace"; p_sw[5] = 16'h0000;
+		p_hex[6] = "../ooo_tests/programs/sort_d8.hex";     p_trace[6] = "../ooo_tests/programs/sort_d8.trace";     p_sw[6] = 16'h0000;
+		p_hex[7] = "../ooo_tests/programs/negative_d8.hex"; p_trace[7] = "../ooo_tests/programs/negative_d8.trace"; p_sw[7] = 16'h0000;
+		p_hex[8] = "../ooo_tests/programs/xor_d8.hex";      p_trace[8] = "../ooo_tests/programs/xor_d8.trace";      p_sw[8] = 16'h0000;
+		p_hex[9] = "../ooo_tests/programs/mul_d8.hex";      p_trace[9] = "../ooo_tests/programs/mul_d8.trace";      p_sw[9] = 16'h0000;
+		p_hex[10] = "../ooo_tests/programs/div_d8.hex";     p_trace[10] = "../ooo_tests/programs/div_d8.trace";     p_sw[10] = 16'h0000;
+		p_hex[11] = "../ooo_tests/programs/rv32m_d8.hex";   p_trace[11] = "../ooo_tests/programs/rv32m_d8.trace";   p_sw[11] = 16'h0000;
+		// constructed best cases for the pipelined MUL / MUL in a DIV shadow (A, 26 Oct; D17: not typical)
+		p_hex[12] = "../ooo_tests/programs/mul_stream.hex"; p_trace[12] = "../ooo_tests/programs/mul_stream.trace"; p_sw[12] = 16'h0000;
+		p_hex[13] = "../ooo_tests/programs/muldiv_stream.hex"; p_trace[13] = "../ooo_tests/programs/muldiv_stream.trace"; p_sw[13] = 16'h0000;
 		nprog = NPROG;
+		use_arg = 1'b0;
 		if ($value$plusargs("hex=%s", arg_hex)) begin
 			if (!$value$plusargs("trace=%s", arg_trace)) begin
 				$display("TEST_FAIL baseline_counters +hex given without +trace");
@@ -161,6 +178,7 @@ module tb_baseline_counters;
 			if (!$value$plusargs("sw=%h", arg_sw)) arg_sw = 16'h0000;
 			p_hex[0] = arg_hex; p_trace[0] = arg_trace; p_sw[0] = arg_sw;
 			nprog = 1;
+			use_arg = 1'b1;
 		end
 	end
 
@@ -291,86 +309,104 @@ module tb_baseline_counters;
 		end
 	endtask
 
-	integer p, c, cyc;
+	integer p, c, cyc, n_skip, fdh;
 	initial begin
-		n_fail = 0; n_checks = 0; active = 0;
+		n_fail = 0; n_checks = 0; active = 0; n_skip = 0;
 		#1;
 		for (p = 0; p < nprog; p = p + 1) begin
-			reset = 1'b0;
-			sw    = p_sw[p];
-			read_trace(p_trace[p]);
-			for (w = 0; w < 1024; w = w + 1) prog[w] = 32'd0;
-			$readmemh(p_hex[p], prog);
-			scan_m;
-			bug0 = 0; bad0 = 1'b0;
-			$readmemh(p_hex[p], S0.U_IMEM.imem);
-			$readmemh(p_hex[p], S1.U_IMEM.imem);
-			$readmemh(p_hex[p], S2.U_IMEM.imem);
-			$readmemh(p_hex[p], TOP.U_IMEM.imem);
-			$readmemh(p_hex[p], TOPB0.U_IMEM.imem);
-			$readmemh(p_hex[p], TOPB1.U_IMEM.imem);
-			for (c = 0; c < NCORE; c = c + 1) begin
-				en[c] = (c != 0) || !has_m;
-				st_idx[c] = 0; st_off[c] = 32'd0; off_set[c] = 1'b0;
-			end
-			repeat (5) @(negedge clk);
-			active = 1;
-			reset  = 1'b1;
-			cyc = 0;
-			while (cyc < TIMEOUT && !((S0.done || !en[0]) && (TOPB0.done || !en[0]) && S1.done && S2.done && TOP.done && TOPB1.done)) begin
-				@(negedge clk);
-				cyc = cyc + 1;
-			end
-			repeat (3) @(negedge clk);
-			active = 0;
-
-			c_result[0] = S0.result; c_done[0] = S0.done; c_exc[0] = S0.exception; c_cycles[0] = S0.U_PERF.cycles;
-			c_result[1] = S1.result; c_done[1] = S1.done; c_exc[1] = S1.exception; c_cycles[1] = S1.U_PERF.cycles;
-			c_result[2] = S2.result; c_done[2] = S2.done; c_exc[2] = S2.exception; c_cycles[2] = S2.U_PERF.cycles;
-			c_ret[0] = n_commit; c_ret[1] = S1.U_PERF.retired; c_ret[2] = S2.U_PERF.retired;
-
-			for (c = 0; c < NCORE; c = c + 1) begin
-				if (!en[c]) begin
-					$display("PERF %0s core=%0s N/A (program uses RV32M; the baseline is RV32I only, D17)",
-					         p_hex[p], c_name[c]);
-				end else begin
-					if (!end_done)                       fail("trace does not end with done; cycles undefined", c);
-					if (c_done[c] !== 1'b1)              fail("did not reach done", c);
-					if (c_result[c] !== end_result)      fail("wrong result", c);
-					if (st_idx[c] != n_st)               fail("store count differs from trace", c);
-					if (c == 0 && bug0 != 0)             fail("store stream differs from trace", c);
-					if (c == 2 && c_exc[c] !== end_exc)  fail("exception differs from trace", c);
-					if (c != 0 && c_ret[c] != n_commit)  fail("retired differs from trace commits", c);
-					$display("PERF %0s core=%0s result=%h done=%b exception=%b cycles=%0d retired=%0d%0s CPI=%0.3f",
-					         p_hex[p], c_name[c], c_result[c], c_done[c], c_exc[c], c_cycles[c], c_ret[c],
-					         c == 0 ? "(trace)" : "", $itor(c_cycles[c]) / $itor(c_ret[c]));
-					n_checks = n_checks + 1;
+			fdh = $fopen(p_hex[p], "r");
+			if (fdh == 0 && !use_arg) begin
+				n_skip = n_skip + 1;
+				$display("SKIP baseline_counters %0s: not built (no RISC-V gcc)", p_hex[p]);
+			end else begin
+				if (fdh != 0) $fclose(fdh);
+				reset = 1'b0;
+				sw    = p_sw[p];
+				read_trace(p_trace[p]);
+				for (w = 0; w < 1024; w = w + 1) prog[w] = 32'd0;
+				$readmemh(p_hex[p], prog);
+				scan_m;
+				bug0 = 0; bad0 = 1'b0;
+				$readmemh(p_hex[p], S0.U_IMEM.imem);
+				$readmemh(p_hex[p], S1.U_IMEM.imem);
+				$readmemh(p_hex[p], S2.U_IMEM.imem);
+				$readmemh(p_hex[p], TOP.U_IMEM.imem);
+				$readmemh(p_hex[p], TOPB0.U_IMEM.imem);
+				$readmemh(p_hex[p], TOPB1.U_IMEM.imem);
+				for (c = 0; c < NCORE; c = c + 1) begin
+					en[c] = (c != 0) || !has_m;
+					st_idx[c] = 0; st_off[c] = 32'd0; off_set[c] = 1'b0;
 				end
+				repeat (5) @(negedge clk);
+				active = 1;
+				reset  = 1'b1;
+				cyc = 0;
+				while (cyc < TIMEOUT && !((S0.done || !en[0]) && (TOPB0.done || !en[0]) && S1.done && S2.done && TOP.done && TOPB1.done)) begin
+					@(negedge clk);
+					cyc = cyc + 1;
+				end
+				repeat (3) @(negedge clk);
+				active = 0;
+
+				c_result[0] = S0.result; c_done[0] = S0.done; c_exc[0] = S0.exception; c_cycles[0] = S0.U_PERF.cycles;
+				c_result[1] = S1.result; c_done[1] = S1.done; c_exc[1] = S1.exception; c_cycles[1] = S1.U_PERF.cycles;
+				c_result[2] = S2.result; c_done[2] = S2.done; c_exc[2] = S2.exception; c_cycles[2] = S2.U_PERF.cycles;
+				c_ret[0] = n_commit; c_ret[1] = S1.U_PERF.retired; c_ret[2] = S2.U_PERF.retired;
+
+				for (c = 0; c < NCORE; c = c + 1) begin
+					if (!en[c]) begin
+						$display("PERF %0s core=%0s N/A (program uses RV32M; the baseline is RV32I only, D17)",
+						         p_hex[p], c_name[c]);
+					end else begin
+						if (!end_done)                       fail("trace does not end with done; cycles undefined", c);
+						if (c_done[c] !== 1'b1)              fail("did not reach done", c);
+						if (c_result[c] !== end_result)      fail("wrong result", c);
+						if (st_idx[c] != n_st)               fail("store count differs from trace", c);
+						if (c == 0 && bug0 != 0)             fail("store stream differs from trace", c);
+						if (c != 0 && c_exc[c] !== end_exc)  fail("exception differs from trace", c);
+						if (c != 0 && c_ret[c] != n_commit)  fail("retired differs from trace commits", c);
+						$display("PERF %0s core=%0s result=%h done=%b exception=%b cycles=%0d retired=%0d%0s CPI=%0.3f",
+						         p_hex[p], c_name[c], c_result[c], c_done[c], c_exc[c], c_cycles[c], c_ret[c],
+						         c == 0 ? "(trace)" : "", $itor(c_cycles[c]) / $itor(c_ret[c]));
+						n_checks = n_checks + 1;
+					end
+				end
+				// L1 data cache of pipe_ooo (board-top copy; MMIO is not counted)
+				$display("DCACHE %0s core=pipe_ooo accesses=%0d hits=%0d misses=%0d stall_cycles=%0d hit_rate=%0.1f%%",
+				         p_hex[p], TOP.U_PERF.dcache_access_count, TOP.U_PERF.dcache_hit_count,
+				         TOP.U_PERF.dcache_miss_count, TOP.U_PERF.dcache_stall_cycles,
+				         TOP.U_PERF.dcache_access_count == 0 ? 0.0 :
+				         100.0 * $itor(TOP.U_PERF.dcache_hit_count) / $itor(TOP.U_PERF.dcache_access_count));
+				if (TOP.U_PERF.dcache_hit_count + TOP.U_PERF.dcache_miss_count !== TOP.U_PERF.dcache_access_count) begin
+					n_fail = n_fail + 1;
+					$display("TEST_FAIL baseline_counters %0s: dcache hits + misses != accesses", p_hex[p]);
+				end
+				if (TOP.U_PERF.cycles !== c_cycles[2]) begin
+					n_fail = n_fail + 1;
+					$display("TEST_FAIL baseline_counters %0s: tb count %0d != top_fpga_ooo counter %0d (counting rule differs from the board)",
+					         p_hex[p], c_cycles[2], TOP.U_PERF.cycles);
+				end
+				if (TOPB1.U_PERF.cycles !== c_cycles[1] || TOPB1.U_PERF.retired !== c_ret[1] ||
+				    TOPB1.result !== c_result[1] || TOPB1.done !== c_done[1]) begin
+					n_fail = n_fail + 1;
+					$display("TEST_FAIL baseline_counters %0s: top_fpga_base(pipe_m) cycles=%0d retired=%0d result=%h done=%b != tb copy %0d %0d %h %b",
+					         p_hex[p], TOPB1.U_PERF.cycles, TOPB1.U_PERF.retired, TOPB1.result, TOPB1.done,
+					         c_cycles[1], c_ret[1], c_result[1], c_done[1]);
+				end
+				if (en[0] && (TOPB0.U_PERF.cycles !== c_cycles[0] || TOPB0.result !== c_result[0] || TOPB0.done !== c_done[0])) begin
+					n_fail = n_fail + 1;
+					$display("TEST_FAIL baseline_counters %0s: top_fpga_base(pipe) cycles=%0d result=%h done=%b != tb copy %0d %h %b",
+					         p_hex[p], TOPB0.U_PERF.cycles, TOPB0.result, TOPB0.done, c_cycles[0], c_result[0], c_done[0]);
+				end
+				if (!has_m && !bad0 && c_cycles[1] !== c_cycles[0]) begin
+					n_fail = n_fail + 1;
+					$display("TEST_FAIL baseline_counters %0s: pipe_m %0d cycles != pipe %0d on RV32I code",
+					         p_hex[p], c_cycles[1], c_cycles[0]);
+				end
+				n_checks = n_checks + 4;
 			end
-			if (TOP.U_PERF.cycles !== c_cycles[2]) begin
-				n_fail = n_fail + 1;
-				$display("TEST_FAIL baseline_counters %0s: tb count %0d != top_fpga_ooo counter %0d (counting rule differs from the board)",
-				         p_hex[p], c_cycles[2], TOP.U_PERF.cycles);
-			end
-			if (TOPB1.U_PERF.cycles !== c_cycles[1] || TOPB1.U_PERF.retired !== c_ret[1] ||
-			    TOPB1.result !== c_result[1] || TOPB1.done !== c_done[1]) begin
-				n_fail = n_fail + 1;
-				$display("TEST_FAIL baseline_counters %0s: top_fpga_base(pipe_m) cycles=%0d retired=%0d result=%h done=%b != tb copy %0d %0d %h %b",
-				         p_hex[p], TOPB1.U_PERF.cycles, TOPB1.U_PERF.retired, TOPB1.result, TOPB1.done,
-				         c_cycles[1], c_ret[1], c_result[1], c_done[1]);
-			end
-			if (en[0] && (TOPB0.U_PERF.cycles !== c_cycles[0] || TOPB0.result !== c_result[0] || TOPB0.done !== c_done[0])) begin
-				n_fail = n_fail + 1;
-				$display("TEST_FAIL baseline_counters %0s: top_fpga_base(pipe) cycles=%0d result=%h done=%b != tb copy %0d %h %b",
-				         p_hex[p], TOPB0.U_PERF.cycles, TOPB0.result, TOPB0.done, c_cycles[0], c_result[0], c_done[0]);
-			end
-			if (!has_m && !bad0 && c_cycles[1] !== c_cycles[0]) begin
-				n_fail = n_fail + 1;
-				$display("TEST_FAIL baseline_counters %0s: pipe_m %0d cycles != pipe %0d on RV32I code",
-				         p_hex[p], c_cycles[1], c_cycles[0]);
-			end
-			n_checks = n_checks + 4;
 		end
+		if (n_skip != 0) $display("baseline_counters: %0d of %0d programs skipped", n_skip, nprog);
 		if (n_fail == 0) $display("TEST_PASS baseline_counters %0d", n_checks);
 		else             $display("TEST_FAIL baseline_counters %0d failures", n_fail);
 		$finish;
