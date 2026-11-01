@@ -1,38 +1,33 @@
-#!/usr/bin/env python3
-"""Generates ooo_tests/programs/spec_stress_<k>.{hex,trace}: random looping RV32IM programs
-that make branch speculation work hard. Nested counted loops (backward branches: BTB hits,
-predicted-taken paths, mispredicted loop exits) around random bodies with data-dependent forward
-branches, JAL, JALR, loads, stores, MUL, DIV and MMIO. Illegal words sit where only the wrong
-path can reach them. The program ends by adding every register and all test memory into the
-result, so a wrong-path store or a bad rename changes the result.
-Usage: python3 -I tools/gen_spec_programs.py [count]"""
-import os, random, subprocess, sys
+#!/ usr / bin / env python3
+"""Random RV32IM program generator for stressing branch speculation.
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "ooo_tests", "programs")
-BASE, WORDS = 31, 64           # x31 = 0x400: test memory, 64 words
-MMIO = 30                      # x30 = 0x1000_0000
-CNT0, CNT1, TMP = 20, 21, 22   # loop counters and JALR scratch: never random destinations
-R = list(range(1, 9))          # random destinations and sources
+Output: ooo_tests/programs/spec_stress_<k>.hex and spec_stress_<k>.trace
 
-def r_t(f7, rs2, rs1, f3, rd): return (f7 << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | 0x33
-def i_t(imm, rs1, f3, rd, op=0x13): return ((imm & 0xFFF) << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | op
-def s_t(imm, rs2, rs1, f3):
-    imm &= 0xFFF
-    return ((imm >> 5) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | ((imm & 31) << 7) | 0x23
-def b_t(imm, rs2, rs1, f3):
-    imm &= 0x1FFF
-    return (((imm >> 12) & 1) << 31) | (((imm >> 5) & 63) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | \
-           (((imm >> 1) & 15) << 8) | (((imm >> 11) & 1) << 7) | 0x63
-def j_t(imm, rd):
-    imm &= 0x1FFFFF
-    return (((imm >> 20) & 1) << 31) | (((imm >> 1) & 1023) << 21) | (((imm >> 11) & 1) << 20) | \
-           (((imm >> 12) & 255) << 12) | (rd << 7) | 0x6F
-def lui(imm20, rd): return (imm20 << 12) | (rd << 7) | 0x37
+Each program is built from:
+  - Nested counted loops, whose backward branches exercise BTB hits,
+    predicted-taken paths and mispredicted loop exits.
+  - Randomized loop bodies containing data-dependent forward branches, JAL,
+    JALR, loads, stores, MUL, DIV and MMIO accesses.
+  - Illegal instruction words, placed so that only the wrong path can reach them.
 
-class Prog:
-    def __init__(s, rnd): s.w, s.rnd, s.fix = [], rnd, []
-    def emit(s, x): s.w.append(x); return len(s.w) - 1
+At the end, the program sums all registers and all test memory into the result.
+A wrong-path store or a rename error therefore shows up as a different result.
+
+Usage:
+    python3 -I tools/gen_spec_programs.py [count]
+"""
+
+
+
+random, subprocess, sys
+
+                        ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) OUT = os.path.join(ROOT, "ooo_tests", "programs") BASE,
+                        WORDS = 31, 64 #x31 = 0x400 : test memory, 64 words MMIO = 30 #x30 = 0x1000_0000 CNT0, CNT1, TMP = 20, 21, 22 #loop counters and JALR scratch : never random destinations R = list(range(1, 9)) #random destinations and sources
+
+                                                                                                                                                                                                                                                     def r_t(f7, rs2, rs1, f3, rd) : return (f7 << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | 0x33 def i_t(imm, rs1, f3, rd, op = 0x13) : return ((imm & 0xFFF) << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | op def s_t(imm, rs2, rs1, f3) : imm &= 0xFFF return ((imm >> 5) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | ((imm & 31) << 7) | 0x23 def b_t(imm, rs2, rs1, f3) : imm &= 0x1FFF return (((imm >> 12) & 1) << 31) | (((imm >> 5) & 63) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (((imm >> 1) & 15) << 8) | (((imm >> 11) & 1) << 7) | 0x63 def j_t(imm, rd) : imm &= 0x1FFFFF return (((imm >> 20) & 1) << 31) | (((imm >> 1) & 1023) << 21) | (((imm >> 11) & 1) << 20) | (((imm >> 12) & 255) << 12) | (rd << 7) | 0x6F def lui(imm20, rd) : return (imm20 << 12) | (rd << 7) | 0x37
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                class Prog : def __init__(s, rnd) : s.w,
+                        s.rnd, s.fix = [], rnd, [] def emit(s, x) : s.w.append(x); return len(s.w) - 1
     def li(s, rd, v): s.emit(i_t(v, 0, 0, rd))
     def here(s): return len(s.w)
     def patch(s, at, target):
@@ -108,7 +103,7 @@ def generate(seed, scale):
     p.li(BASE, 0x400)
     p.emit(lui(0x10000, MMIO))
     for r in R: p.li(r, rnd.randrange(-2048, 2048))
-    # initialise the test memory (data_mem starts undefined)
+#initialise the test memory(data_mem starts undefined)
     p.li(TMP, 0)
     def init():
         p.emit(r_t(0, BASE, TMP, 0, 9))                     # x9 = x22 + x31
@@ -122,7 +117,7 @@ def generate(seed, scale):
             for _ in range(rnd.randrange(2, 6)): p.item()
             p.loop(CNT1, rnd.randrange(2, 5), inner)
         p.loop(CNT0, max(2, rnd.randrange(3, 8) // scale), outer)
-    # checksum: registers + test memory
+#checksum : registers + test memory
     p.li(10, 0)
     for r in R: p.emit(r_t(0, r, 10, 0, 10))
     p.li(TMP, 0)
@@ -151,7 +146,7 @@ def main():
                     f.write(f"{(words[i] if i < len(words) else 0):08x} // 32'h{i*4:08x}\n")
             out = subprocess.run([sys.executable, "-I", model, hex_p, "--max", "3900", "-o", trace_p],
                                  capture_output=True, text=True).stderr.strip().splitlines()[-1]
-            # an illegal word reached on the right path would be a generator bug
+#an illegal word reached on the right path would be a generator bug
             if "done=1" in out and "exception=0" in out:
                 print(f"spec_stress_{k}: {len(words)} words, {out.split(':')[1].strip()}")
                 break
