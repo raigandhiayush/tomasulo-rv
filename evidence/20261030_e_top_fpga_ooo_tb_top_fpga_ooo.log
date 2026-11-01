@@ -1,0 +1,22 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-30 16:21:14 IST
+Owner (module): E   Run by: A
+Module: top_fpga_ooo
+Specification: blueprint 6.16, D8, D20-D22, MMIO test plan T1-T9
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: iverilog -g2012 -I ooo_rtl -DSPEC_EN=0 -DMEM_WAIT=0 -DDC_WB=0 -o simulation/build/tb_top_fpga_ooo -DTOMA_SIM ooo_rtl/top_fpga_ooo.v ooo_rtl/perf_counters.v ooo_rtl/pipe_ooo.v ooo_rtl/ooo_core.v ooo_rtl/ooo_frontend.v ooo_rtl/instr_queue.v ooo_rtl/ooo_decode.v ooo_rtl/ooo_dispatch.v ooo_rtl/rat.v ooo_rtl/regfile_2r1w.v ooo_rtl/rob.v ooo_rtl/rs_array.v ooo_rtl/alu_fu.v ooo_rtl/mul_unit.v ooo_rtl/div_unit.v ooo_rtl/lsu.v ooo_rtl/l1_dcache.v ooo_rtl/bpred.v ooo_rtl/mem_wait.v modules/memory.v ooo_tests/tb_top_fpga_ooo.v && (cd simulation && vvp -n build/tb_top_fpga_ooo)
+Working directory: tomasulo-rv
+Commit: none (uncommitted working tree)
+Exit status: 0
+Simulated time: 14360000 ps (10 ns clock => 1436 cycles)
+Wall time: 0s
+Test result: PASS
+Summary: TEST_PASS top_fpga_ooo 644
+---
+run 0: sw=0000 result=00000003 cycles=188 retired=92 ooo_count=4 (tb count 188/92)
+run 1: sw=ffff result=00000003 cycles=188 retired=92 ooo_count=4 (tb count 188/92)
+run 2: sw=a5a5 result=00000003 cycles=188 retired=92 ooo_count=4 (tb count 188/92)
+run 3: sw=3a10 result=00000003 cycles=188 retired=92 ooo_count=4 (tb count 188/92)
+TEST_PASS top_fpga_ooo 644
+ooo_tests/tb_top_fpga_ooo.v:205: $finish called at 14360000 (1ps)
+---

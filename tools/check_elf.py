@@ -12,6 +12,49 @@ RELOC_NAMES = {16: "R_RISCV_BRANCH", 17: "R_RISCV_JAL", 18: "R_RISCV_CALL", 19: 
                25: "R_RISCV_PCREL_LO12_S", 26: "R_RISCV_HI20", 27: "R_RISCV_LO12_I",
                28: "R_RISCV_LO12_S", 43: "R_RISCV_ALIGN", 44: "R_RISCV_RVC_BRANCH",
                45: "R_RISCV_RVC_JUMP", 51: "R_RISCV_RELAX"}
+R_RISCV_BRANCH, R_RISCV_JAL = 16, 17
+STB_LOCAL = 0
+
+
+def b_imm(w):
+    """Sign-extended B-type immediate."""
+    v = ((w >> 31) & 1) << 12 | ((w >> 7) & 1) << 11 | ((w >> 25) & 0x3F) << 5 | ((w >> 8) & 0xF) << 1
+    return v - (1 << 13) if v & (1 << 12) else v
+
+
+def j_imm(w):
+    """Sign-extended J-type immediate."""
+    v = ((w >> 31) & 1) << 20 | ((w >> 12) & 0xFF) << 12 | ((w >> 20) & 1) << 11 | ((w >> 21) & 0x3FF) << 1
+    return v - (1 << 21) if v & (1 << 20) else v
+
+
+def resolved_local(data, secs, rela, off, r_type, sym_idx, addend):
+    """True if a BRANCH/JAL relocation is already final in the object.
+
+    binutils >= 2.41 keeps R_RISCV_BRANCH / R_RISCV_JAL against local labels
+    even with -mno-relax, but the assembler has already written the offset into
+    the instruction. Such a relocation is harmless (no linker is needed) only if
+    the symbol is local, lives in the same executable section as the instruction,
+    the instruction has the matching opcode, and its encoded offset equals
+    S + A - P. Anything else stays an error (F3).
+    """
+    if r_type not in (R_RISCV_BRANCH, R_RISCV_JAL):
+        return False
+    tgt_idx, symtab = rela["info"], secs[rela["link"]]
+    if not 0 < tgt_idx < len(secs) or symtab["type"] != SHT_SYMTAB:
+        return False
+    tgt = secs[tgt_idx]
+    if not tgt["flags"] & SHF_EXECINSTR or off % 4 or off + 4 > tgt["size"]:
+        return False
+    if sym_idx == 0 or 16 * (sym_idx + 1) > symtab["size"]:
+        return False
+    _, value, _, info, _, shndx = struct.unpack_from("<IIIBBH", data, symtab["offset"] + 16 * sym_idx)
+    if info >> 4 != STB_LOCAL or shndx != tgt_idx:
+        return False
+    w = struct.unpack_from("<I", data, tgt["offset"] + off)[0]
+    if r_type == R_RISCV_BRANCH:
+        return w & 0x7F == 0x63 and b_imm(w) == value + addend - off
+    return w & 0x7F == 0x6F and j_imm(w) == value + addend - off
 
 
 def legal(w):
@@ -80,6 +123,7 @@ def check(path):
     data = open(path, "rb").read()
     machine, flags, secs = sections(data)
     errors = []
+    n_local = 0
     if machine != EM_RISCV:
         errors.append(f"e_machine {machine} is not RISC-V ({EM_RISCV})")
     if flags & EF_RISCV_RVC:
@@ -90,13 +134,20 @@ def check(path):
         if s["type"] in (SHT_REL, SHT_RELA) and s["size"]:
             ent = 8 if s["type"] == SHT_REL else 12
             kinds = {}
+            n_bad = 0
             for i in range(s["size"] // ent):
-                r_info = struct.unpack_from("<I", data, s["offset"] + ent * i + 4)[0]
+                r_off, r_info = struct.unpack_from("<II", data, s["offset"] + ent * i)
+                addend = struct.unpack_from("<i", data, s["offset"] + ent * i + 8)[0] if ent == 12 else 0
+                if s["type"] == SHT_RELA and resolved_local(data, secs, s, r_off, r_info & 0xFF, r_info >> 8, addend):
+                    n_local += 1
+                    continue
+                n_bad += 1
                 t = RELOC_NAMES.get(r_info & 0xFF, f"type {r_info & 0xFF}")
                 kinds[t] = kinds.get(t, 0) + 1
-            errors.append(f"{s['name']}: {s['size'] // ent} relocation(s) "
-                          + ", ".join(f"{k} x{v}" for k, v in sorted(kinds.items()))
-                          + " (F3: no calls, no globals; RV32M needs -march=rv32im; build with -mno-relax)")
+            if n_bad:
+                errors.append(f"{s['name']}: {n_bad} unresolved relocation(s) "
+                              + ", ".join(f"{k} x{v}" for k, v in sorted(kinds.items()))
+                              + " (F3: no calls, no globals; RV32M needs -march=rv32im; build with -mno-relax)")
         if s["flags"] & SHF_ALLOC and s["flags"] & SHF_WRITE and s["size"]:
             errors.append(f"{s['name']}: {s['size']} bytes of writable data (F2: data_mem never loads dmem.hex; no globals)")
     text = [(i, s) for i, s in enumerate(secs) if s["flags"] & SHF_EXECINSTR and s["size"]]
@@ -117,7 +168,7 @@ def check(path):
     elif text and (main[1] != text[0][0] or main[0] != 0):
         errors.append(f"main is at {secs[main[1]]['name'] if main[1] < len(secs) else main[1]}+{main[0]:#x}; "
                       f"it must be at offset 0 of {text[0][1]['name']} (the core starts at pc 0)")
-    return n_words, errors
+    return n_words, errors, n_local
 
 
 def main(argv):
@@ -127,7 +178,7 @@ def main(argv):
     status = 0
     for path in argv[1:]:
         try:
-            n, errors = check(path)
+            n, errors, n_local = check(path)
         except (ElfError, OSError, struct.error, ValueError, IndexError) as e:
             print(f"{path}: ERROR {e}")
             status = max(status, 2)
@@ -138,7 +189,8 @@ def main(argv):
                 print("  " + e)
             status = max(status, 1)
         else:
-            print(f"{path}: OK ({n} instructions, no relocations, no data)")
+            extra = f", {n_local} local branch/jump relocation(s) verified resolved" if n_local else ""
+            print(f"{path}: OK ({n} instructions, no unresolved relocations, no data{extra})")
     return status
 
 

@@ -1,0 +1,31 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-26 20:34:19 IST
+Owner (module): E   Run by: A
+Module: commit_trace
+Specification: blueprint 6.17 reference model + commit-trace compare
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: iverilog -g2012 -I ooo_rtl -o simulation/build/tb_commit_trace -DTOMA_SIM ooo_rtl/top_fpga_ooo.v ooo_rtl/perf_counters.v ooo_rtl/pipe_ooo.v ooo_rtl/ooo_core.v ooo_rtl/ooo_frontend.v ooo_rtl/instr_queue.v ooo_rtl/ooo_decode.v ooo_rtl/ooo_dispatch.v ooo_rtl/rat.v ooo_rtl/regfile_2r1w.v ooo_rtl/rob.v ooo_rtl/rs_array.v ooo_rtl/alu_fu.v ooo_rtl/mul_unit.v ooo_rtl/div_unit.v ooo_rtl/lsu.v modules/memory.v ooo_tests/tb_commit_trace.v && (cd simulation && vvp -n build/tb_commit_trace)
+Working directory: tomasulo-rv
+Commit: 53f64cd +uncommitted changes
+Exit status: 0
+Simulated time: 26080000 ps (10 ns clock => 2608 cycles)
+Wall time: 0s
+Test result: PASS
+Summary: TEST_PASS commit_trace 968
+---
+../mem_generator/imem_dmem/imem.hex: 200 commits compared, result=00000000 done=0 exception=0 cycles=262 retired=202 ooo_count=23, 0 failures
+../ooo_tests/programs/top_mmio.hex: 92 commits compared, result=00000003 done=1 exception=0 cycles=173 retired=92 ooo_count=4, 0 failures
+../ooo_tests/programs/ooo_trace.hex: 14 commits compared, result=0000021e done=1 exception=0 cycles=52 retired=14 ooo_count=4, 0 failures
+../ooo_tests/programs/rv32m_edge.hex: 74 commits compared, result=4000000e done=1 exception=0 cycles=526 retired=74 ooo_count=18, 0 failures
+../ooo_tests/programs/mul_d8.hex: 78 commits compared, result=000013b0 done=1 exception=0 cycles=140 retired=78 ooo_count=7, 0 failures
+../ooo_tests/programs/div_d8.hex: 102 commits compared, result=00003b26 done=1 exception=0 cycles=552 retired=102 ooo_count=7, 0 failures
+../ooo_tests/programs/rv32m_d8.hex: 119 commits compared, result=0000007f done=1 exception=0 cycles=277 retired=119 ooo_count=6, 0 failures
+../ooo_tests/programs/addition_d8.hex: 18 commits compared, result=00000066 done=1 exception=0 cycles=25 retired=18 ooo_count=1, 0 failures
+../ooo_tests/programs/sort_d8.hex: 127 commits compared, result=00000003 done=1 exception=0 cycles=187 retired=127 ooo_count=0, 0 failures
+../ooo_tests/programs/negative_d8.hex: 18 commits compared, result=ffffffd2 done=1 exception=0 cycles=25 retired=18 ooo_count=1, 0 failures
+../ooo_tests/programs/xor_d8.hex: 18 commits compared, result=00000009 done=1 exception=0 cycles=25 retired=18 ooo_count=1, 0 failures
+../ooo_tests/programs/mul_stream.hex: 52 commits compared, result=000708f8 done=1 exception=0 cycles=59 retired=52 ooo_count=0, 0 failures
+../ooo_tests/programs/muldiv_stream.hex: 56 commits compared, result=00018ae9 done=1 exception=0 cycles=178 retired=56 ooo_count=19, 0 failures
+TEST_PASS commit_trace 968
+ooo_tests/tb_commit_trace.v:164: $finish called at 26080000 (1ps)
+---

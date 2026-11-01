@@ -12,7 +12,22 @@ XOR = [0xfe010113, 0x00112e23, 0x00812c23, 0x02010413, 0x00a00793, 0xfef42623,
        0xfe442783, 0x00078513, 0x01c12083, 0x01812403, 0x02010113, 0x00008067]
 
 
-def make_elf(words, relocs=(), data_bytes=0, main_off=0, flags=0, machine=243):
+def enc_j(rd, imm):
+    """JAL rd, imm."""
+    i = imm & 0x1FFFFF
+    return (i >> 20 & 1) << 31 | (i >> 1 & 0x3FF) << 21 | (i >> 11 & 1) << 20 | (i >> 12 & 0xFF) << 12 | rd << 7 | 0x6F
+
+
+def enc_b(f3, rs1, rs2, imm):
+    """Branch funct3 rs1, rs2, imm."""
+    i = imm & 0x1FFF
+    return ((i >> 12 & 1) << 31 | (i >> 5 & 0x3F) << 25 | rs2 << 20 | rs1 << 15 | f3 << 12
+            | (i >> 1 & 0xF) << 8 | (i >> 11 & 1) << 7 | 0x63)
+
+
+def make_elf(words, relocs=(), data_bytes=0, main_off=0, flags=0, machine=243, local_syms=()):
+    """relocs: (offset, type) against the global 'main', or (offset, type, symbol index, addend).
+    local_syms: (name, value) local labels in .text; they get symbol indexes 1..n, main is n+1."""
     text = b"".join(struct.pack("<I", w) for w in words)
     names = [b"", b".text", b".symtab", b".strtab", b".shstrtab"]
     if relocs:
@@ -22,8 +37,14 @@ def make_elf(words, relocs=(), data_bytes=0, main_off=0, flags=0, machine=243):
     shstr = b"\0".join(names) + b"\0"
     name_off = {n: shstr.index(n + b"\0") if n else 0 for n in names}
     strtab = b"\0main\0"
-    symtab = b"\0" * 16 + struct.pack("<IIIBBH", 1, main_off, 4 * len(words), 0x12, 0, 1)
-    rela = b"".join(struct.pack("<IIi", off, (1 << 8) | t, 0) for off, t in relocs)
+    symtab = b"\0" * 16
+    for name, value in local_syms:                      # STB_LOCAL, STT_NOTYPE, in .text
+        symtab += struct.pack("<IIIBBH", len(strtab), value, 0, 0x00, 0, 1)
+        strtab += name.encode() + b"\0"
+    main_idx = 1 + len(local_syms)
+    symtab += struct.pack("<IIIBBH", 1, main_off, 4 * len(words), 0x12, 0, 1)
+    rela = b"".join(struct.pack("<IIi", r[0], ((r[2] if len(r) > 2 else main_idx) << 8) | r[1],
+                                r[3] if len(r) > 3 else 0) for r in relocs)
     data = b"\0" * data_bytes
     blobs = [(".text", text), (".symtab", symtab), (".strtab", strtab), (".shstrtab", shstr)]
     if relocs:
@@ -42,7 +63,7 @@ def make_elf(words, relocs=(), data_bytes=0, main_off=0, flags=0, machine=243):
         size = len(dict(blobs)[n])
         return struct.pack("<IIIIIIIIII", name_off[n.encode()], typ, fl, 0, offs[n], size, link, info, align, ent)
     sh.append(hdr(".text", 1, 0x6))
-    sh.append(hdr(".symtab", 2, 0, link=3, info=1, ent=16))
+    sh.append(hdr(".symtab", 2, 0, link=3, info=1 + len(local_syms), ent=16))
     sh.append(hdr(".strtab", 3, 0))
     sh.append(hdr(".shstrtab", 3, 0))
     if relocs:
@@ -123,6 +144,24 @@ def main():
         ("main_not_first", make_elf(XOR, main_off=8), 1, "offset 0"),
         ("wrong_machine", make_elf(XOR, machine=62), 1, "not RISC-V"),
         ("not_elf", b"hello world, not an elf", 2, "not an ELF"),
+        # binutils >= 2.41 keeps BRANCH/JAL relocations against local labels even with
+        # -mno-relax; they are accepted only when the encoded offset is already final
+        ("local_jal_self", make_elf(XOR + [enc_j(0, 0)], relocs=[(0x48, 17, 1, 0)],
+                                    local_syms=[(".L2", 0x48)]), 0, "1 local branch/jump relocation(s) verified"),
+        ("local_branch_jal", make_elf(XOR + [enc_b(0, 15, 14, 0x10 - 0x48), enc_j(0, 0x08 - 0x4C)],
+                                      relocs=[(0x48, 16, 1, 0), (0x4C, 17, 2, 0)],
+                                      local_syms=[(".L3", 0x10), (".L4", 0x08)]), 0, "2 local branch/jump"),
+        ("local_jal_wrong_imm", make_elf(XOR + [enc_j(0, 0)], relocs=[(0x48, 17, 1, 0)],
+                                         local_syms=[(".L2", 0x10)]), 1, "unresolved relocation(s) R_RISCV_JAL"),
+        ("local_jal_addend", make_elf(XOR + [enc_j(0, 0)], relocs=[(0x48, 17, 1, 4)],
+                                      local_syms=[(".L2", 0x48)]), 1, "R_RISCV_JAL"),
+        ("local_jal_on_branch", make_elf(XOR + [enc_b(0, 0, 0, 0)], relocs=[(0x48, 17, 1, 0)],
+                                         local_syms=[(".L2", 0x48)]), 1, "R_RISCV_JAL"),
+        ("local_hi20", make_elf(XOR + [enc_j(0, 0)], relocs=[(0x48, 26, 1, 0)],
+                                local_syms=[(".L2", 0x48)]), 1, "R_RISCV_HI20"),
+        ("global_jal", make_elf(XOR + [enc_j(0, -0x48)], relocs=[(0x48, 17)]), 1, "R_RISCV_JAL"),
+        ("mixed_ok_and_bad", make_elf(XOR + [enc_j(0, 0)], relocs=[(0x48, 17, 1, 0), (0x10, 19, 1, 0)],
+                                      local_syms=[(".L2", 0x48)]), 1, "1 unresolved relocation(s) R_RISCV_CALL_PLT"),
     ]
     n = bad = 0
     for name, blob, st, txt in cases:
