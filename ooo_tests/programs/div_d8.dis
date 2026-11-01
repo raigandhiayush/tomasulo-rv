@@ -1,0 +1,66 @@
+
+code.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <main>:
+   0:	fd010113          	addi	sp,sp,-48
+   4:	02812623          	sw	s0,44(sp)
+   8:	03010413          	addi	s0,sp,48
+   c:	000037b7          	lui	a5,0x3
+  10:	03978793          	addi	a5,a5,57 # 3039 <.L4+0x2f69>
+  14:	fef42623          	sw	a5,-20(s0)
+  18:	00a00793          	li	a5,10
+  1c:	fef42223          	sw	a5,-28(s0)
+  20:	fe042423          	sw	zero,-24(s0)
+  24:	f9c00793          	li	a5,-100
+  28:	fef42023          	sw	a5,-32(s0)
+  2c:	00700793          	li	a5,7
+  30:	fcf42e23          	sw	a5,-36(s0)
+  34:	02c0006f          	j	60 <.L2>
+
+00000038 <.L3>:
+  38:	fec42703          	lw	a4,-20(s0)
+  3c:	fe442783          	lw	a5,-28(s0)
+  40:	02f767b3          	rem	a5,a4,a5
+  44:	fe842703          	lw	a4,-24(s0)
+  48:	00f707b3          	add	a5,a4,a5
+  4c:	fef42423          	sw	a5,-24(s0)
+  50:	fec42703          	lw	a4,-20(s0)
+  54:	fe442783          	lw	a5,-28(s0)
+  58:	02f747b3          	div	a5,a4,a5
+  5c:	fef42623          	sw	a5,-20(s0)
+
+00000060 <.L2>:
+  60:	fec42783          	lw	a5,-20(s0)
+  64:	fc079ae3          	bnez	a5,38 <.L3>
+  68:	fe042703          	lw	a4,-32(s0)
+  6c:	fdc42783          	lw	a5,-36(s0)
+  70:	02f747b3          	div	a5,a4,a5
+  74:	fcf42c23          	sw	a5,-40(s0)
+  78:	fe042703          	lw	a4,-32(s0)
+  7c:	fdc42783          	lw	a5,-36(s0)
+  80:	02f767b3          	rem	a5,a4,a5
+  84:	fcf42a23          	sw	a5,-44(s0)
+  88:	fe842703          	lw	a4,-24(s0)
+  8c:	3e800793          	li	a5,1000
+  90:	02f706b3          	mul	a3,a4,a5
+  94:	fd842703          	lw	a4,-40(s0)
+  98:	00070793          	mv	a5,a4
+  9c:	00279793          	slli	a5,a5,0x2
+  a0:	00e787b3          	add	a5,a5,a4
+  a4:	00179793          	slli	a5,a5,0x1
+  a8:	40f007b3          	neg	a5,a5
+  ac:	00f686b3          	add	a3,a3,a5
+  b0:	100007b7          	lui	a5,0x10000
+  b4:	fd442703          	lw	a4,-44(s0)
+  b8:	40e68733          	sub	a4,a3,a4
+  bc:	00e7a023          	sw	a4,0(a5) # 10000000 <.L4+0xfffff30>
+  c0:	100007b7          	lui	a5,0x10000
+  c4:	00478793          	addi	a5,a5,4 # 10000004 <.L4+0xfffff34>
+  c8:	00100713          	li	a4,1
+  cc:	00e7a023          	sw	a4,0(a5)
+
+000000d0 <.L4>:
+  d0:	0000006f          	j	d0 <.L4>

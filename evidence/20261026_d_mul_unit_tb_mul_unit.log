@@ -1,0 +1,18 @@
+=== TOMA-RV Test Evidence ===
+Date: 2026-10-26 20:33:42 IST
+Owner (module): D   Run by: A
+Module: mul_unit
+Specification: blueprint 6.10, rule 6
+Tool: Icarus Verilog version 12.0 (stable) ()
+Command: iverilog -g2012 -I ooo_rtl -o simulation/build/tb_mul_unit ooo_rtl/mul_unit.v ooo_tests/tb_mul_unit.v && (cd simulation && vvp -n build/tb_mul_unit)
+Working directory: tomasulo-rv
+Commit: 53f64cd +uncommitted changes
+Exit status: 0
+Simulated time: 1004225000 ps (10 ns clock => 100422 cycles)
+Wall time: 2s
+Test result: PASS
+Summary: TEST_PASS mul_unit 100420
+---
+TEST_PASS mul_unit 100420
+ooo_tests/tb_mul_unit.v:145: $finish called at 1004225000 (1ps)
+---
