@@ -26,3 +26,4 @@ Disassembly of section .text:
 
 00000048 <.L2>:
   48:	0000006f          	j	48 <.L2>
+// Reviewed
