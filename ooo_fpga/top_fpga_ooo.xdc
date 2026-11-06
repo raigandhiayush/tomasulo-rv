@@ -1,16 +1,18 @@
-## top_fpga_ooo.xdc - Nexys A7-100T (xc7a100tcsg324-1) constraints for top_fpga_ooo
-## (owner: E, reviewer: B). Pins and IOSTANDARDs copied from Digilent's master file
-## https://raw.githubusercontent.com/Digilent/digilent-xdc/master/Nexys-A7-100T-Master.xdc
-## (fetched 21 Oct 2026), renamed to our ports; the LED pins match baseline_fpga/constraint.xdc.
-## reset uses the CPU_RESETN button (C12, active low), not SW0/J15 as the baseline did,
-## so that all 16 switches are free for sw[15:0] (D23, decided 21 Oct).
-
 ## 100 MHz clock; the 50 MHz core clock is derived by the MMCM (D7) automatically
 set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { clk }]
 create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports { clk }]
 
 ## reset: CPU_RESETN button
 set_property -dict { PACKAGE_PIN C12   IOSTANDARD LVCMOS33 } [get_ports { reset }]
+
+## boot loader: BTNC (N17), active high; hold it while releasing CPU_RESET (uart_loader.v)
+set_property -dict { PACKAGE_PIN N17   IOSTANDARD LVCMOS33 } [get_ports { load_btn }]
+
+## buttons, read by software at 0x1000_000C (btn[0]=BTNU, [1]=BTND, [2]=BTNL, [3]=BTNR)
+set_property -dict { PACKAGE_PIN M18   IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]
+set_property -dict { PACKAGE_PIN P18   IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]
+set_property -dict { PACKAGE_PIN P17   IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]
+set_property -dict { PACKAGE_PIN M17   IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]
 
 ## switches (SW8/SW9 sit in a 1.8 V bank)
 set_property -dict { PACKAGE_PIN J15   IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]
@@ -66,9 +68,14 @@ set_property -dict { PACKAGE_PIN T14   IOSTANDARD LVCMOS33 } [get_ports { an[5] 
 set_property -dict { PACKAGE_PIN K2    IOSTANDARD LVCMOS33 } [get_ports { an[6] }]
 set_property -dict { PACKAGE_PIN U13   IOSTANDARD LVCMOS33 } [get_ports { an[7] }]
 
+## USB-UART bridge, pins from Digilent's master file (UART_TXD_IN, UART_RXD_OUT): C4 is the
+## FPGA's input, D4 its output
+set_property -dict { PACKAGE_PIN C4    IOSTANDARD LVCMOS33 } [get_ports { uart_rx }]
+set_property -dict { PACKAGE_PIN D4    IOSTANDARD LVCMOS33 } [get_ports { uart_tx }]
+
 ## asynchronous inputs go through synchronizers in the RTL; human-speed outputs
-set_false_path -from [get_ports { reset sw[*] }]
-set_false_path -to   [get_ports { led[*] seg[*] an[*] }]
+set_false_path -from [get_ports { reset sw[*] uart_rx }]
+set_false_path -to   [get_ports { led[*] seg[*] an[*] uart_tx }]
 
 ## Configuration bank voltage (Digilent master file); avoids the CFGBVS DRC warning at write_bitstream
 set_property CFGBVS VCCO [current_design]
