@@ -28,7 +28,7 @@ module tb_rob;
     wire [`XLEN-1:0]       cm_value, cm_pc;
 
     rob dut (
-        .clk(clk), .reset_n(reset_n),
+        .clk(clk), .reset_n(reset_n), .rob_lim(`ROB_LIM),
         .rob_al_valid(al_valid), .rob_al_kind(al_kind), .rob_al_has_rd(al_has_rd),
         .rob_al_rd(al_rd), .rob_al_pc(al_pc), .rob_al_pre(al_pre), .rob_al_value(al_value),
         .rob_al_tag(al_tag), .rob_full(full), .rob_empty(empty), .rob_count(count),
