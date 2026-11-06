@@ -13,12 +13,18 @@
 //    store 0x1000_0000 : result, written per byte lane from dmem_write_byte
 //    store 0x1000_0004 : any store sets done (cleared only by reset)
 //    load  0x1000_0008 : {16'd0, sw} (sw through a two-flip-flop synchronizer)
+//    load  0x1000_000C : buttons {27'd0, C, R, L, D, U} (two-flip-flop synchronizer, not
+//                        debounced: software should read twice ~10 ms apart)
+//    load  0x1000_0020 : UART status: [0] input byte waiting, [1] can send, [2] input lost
+//    load  0x1000_0024 : next UART input byte in [7:0], and removes it (0 if none)
+//    store 0x1000_0024 : send [7:0] on the UART (lost if status [1] = 0)
+//    load  0x1000_0028 : cycle counter (perf_counters.cycles), for timing one operation
 //    any other address with [31:28] = 4'h1: store dropped, load returns 0.
 //  MMIO stores never write data_mem. The read-data mux selects on the read
 //  address registered in the LA cycle (data_mem returns data one cycle later).
 //
 //
-//  Counters (D21): run = rst_n_sync & ~done, so the edge that latches done is
+//  Counters (D21): run = core_rst_n & ~done, so the edge that latches done is
 //  the last one counted.
 //
 //  Seven-segment display: shows one 8-digit hex value, chosen by the switches.
@@ -44,6 +50,16 @@
 //  data_mem, and its delay is set by MEM_WAIT in ooo_defs.vh. Setting MEM_WAIT
 //  to 0 leaves data_mem timing unchanged. MMIO accesses always bypass mem_wait.
 //
+//  Boot loader: hold BTNC (load_btn) while releasing CPU_RESET and the core stays in
+//  reset while uart_loader receives a new program (code into instr_mem_wr, data into
+//  data_mem) over the UART
+//  (frame format in uart_loader.v). With a good checksum it replies OK and the core
+//  starts; a bad frame gets ERR and the core keeps waiting. A plain CPU_RESET then
+//  re-runs the loaded program; power-up or reprogramming restores the built-in one.
+//  Everything the core sees is reset by core_rst_n. With load_btn = 0 it changes on
+//  the same clock edges as rst_n_sync, so timing is identical to a build without the
+//  loader. The UART keeps rst_n_sync, since the loader uses it while the core is held.
+//
 //  Simulation: define TOMA_SIM at compile time to remove the MMCM, which makes
 //  core_clk the same as clk. Testbenches rely on the instance names U_IMEM,
 //  U_DMEM, U_CORE and U_PERF, so keep them as they are.
@@ -53,7 +69,9 @@
 
 module top_fpga_ooo
 #(
-	parameter  REFRESH_W = 17      // 50 MHz / 2^17 = 381 Hz per digit
+	parameter  REFRESH_W = 17,     // 50 MHz / 2^17 = 381 Hz per digit
+	parameter  MEM_WAIT  = `MEM_WAIT,
+	parameter  ROB_LIM   = `ROB_LIM
 )
 (
 	input                       clk,                // 100 MHz board clock
@@ -61,12 +79,20 @@ module top_fpga_ooo
 	input       [15: 0]         sw,
 	output      [15: 0]         led,
 	output      [ 7: 0]         seg,                // {DP, CG, CF, CE, CD, CC, CB, CA}, active low
-	output      [ 7: 0]         an                  // active low
+	output      [ 7: 0]         an,                 // active low
+	input                       uart_rx,            // from the USB-UART bridge (idle high)
+	output                      uart_tx,            // to the USB-UART bridge (idle high)
+	input                       load_btn,           // BTNC, active high: held at reset = boot loader
+	input       [ 3: 0]         btn                 // {BTNR, BTNL, BTND, BTNU}, active high
 );
 
 localparam [31:0] MMIO_RESULT = 32'h1000_0000;
 localparam [31:0] MMIO_DONE = 32'h1000_0004;
 localparam [31:0] MMIO_SW = 32'h1000_0008;
+localparam [31:0] MMIO_BTN = 32'h1000_000C;
+localparam [31:0] MMIO_UST = `MMIO_UART_ST;
+localparam [31:0] MMIO_UDT = `MMIO_UART_D;
+localparam [31:0] MMIO_CYC = `MMIO_CYCLES;
 
 // ---- clock (D7) -------------------------------------------------------
 wire core_clk;
@@ -104,6 +130,31 @@ always @(posedge core_clk or negedge rst_n_raw) begin
 else rst_sync <= {rst_sync[0], 1'b1};
 end
 
+// ---- boot loader select ------------------------------------------------------
+// load_btn through two flip-flops (not reset, so it is valid when reset releases).
+// While rst_sync[1] = 0, both flops below follow rst_sync[0], so on the edge where
+// rst_n_sync rises, core_rst_n rises too unless the button is held; then boot_load
+// rises instead and the core stays in reset until the loader reports a good program.
+reg [1:0] btn_sync;
+always @(posedge core_clk) btn_sync <= {btn_sync[0], load_btn};
+wire btn_held = btn_sync[1];
+
+reg core_rst_n;        // reset for the core and everything it sees, active low
+reg boot_load;         // 1: uart_loader owns the UART and the imem write port
+wire ld_loaded;
+always @(posedge core_clk or negedge rst_n_raw) begin
+    if (!rst_n_raw) begin
+        core_rst_n <= 1'b0;
+        boot_load  <= 1'b0;
+    end else if (!rst_sync[1]) begin
+        core_rst_n <= rst_sync[0] & ~btn_held;
+        boot_load  <= rst_sync[0] &  btn_held;
+    end else if (boot_load && ld_loaded) begin
+        core_rst_n <= 1'b1;
+        boot_load  <= 1'b0;
+    end
+end
+
 // ---- core and memories --------------------------------------------------
 wire [31:0] imem_addr,
     imem_data;
@@ -120,9 +171,11 @@ wire ram_re, ram_we;
 wire [31:0] ram_raddr, ram_waddr, ram_wdata;
 wire [3:0] ram_wstrb;
 
+localparam [`ROB_W :0] ROB_LIM_C = ROB_LIM;
 pipe_ooo U_CORE(
         .clk(core_clk),
-        .reset(rst_n_sync),
+        .reset(core_rst_n),
+        .rob_lim(ROB_LIM_C),
         .stall(1'b0),
         .exception(exception),
         .pc_out(),
@@ -159,71 +212,143 @@ pipe_ooo U_CORE(
 wire w_mmio = (dmem_waddr [31:28] == 4'h1);
 wire r_mmio = (dmem_raddr [31:28] == 4'h1);
 
-instr_mem U_IMEM(.clk(core_clk), .pc(imem_addr), .instr(imem_data));
-mem_wait U_MEMW(.clk(core_clk), .reset_n(rst_n_sync),
+wire        ld_imem_we;
+wire [ 9:0] ld_imem_waddr;
+wire [31:0] ld_imem_wdata;
+instr_mem_wr U_IMEM(.clk(core_clk), .pc(imem_addr), .instr(imem_data),
+                    .we(ld_imem_we), .waddr(ld_imem_waddr), .wdata(ld_imem_wdata));
+mem_wait #(.WAIT(MEM_WAIT)) U_MEMW(.clk(core_clk), .reset_n(core_rst_n),
                 .re(dmem_re & ~r_mmio), .raddr(dmem_raddr),
                 .we(dmem_we & ~w_mmio), .waddr(dmem_waddr), .wdata(dmem_wdata), .wstrb(dmem_wstrb),
                 .read_valid(mem_read_valid), .write_valid(mem_write_valid),
                 .ram_re(ram_re), .ram_raddr(ram_raddr),
                 .ram_we(ram_we), .ram_waddr(ram_waddr), .ram_wdata(ram_wdata), .ram_wstrb(ram_wstrb));
+// while loading (boot_load = 1) the boot loader drives the data_mem write port
+// (whole words) and the core side is ignored; the core is held in reset then
+wire        ld_dmem_we;
+wire [ 9:0] ld_dmem_waddr;
+wire [31:0] ld_dmem_wdata;
 data_mem U_DMEM(.clk(core_clk), .re(ram_re), .raddr(ram_raddr), .rdata(ram_rdata),
-                .we(ram_we), .waddr(ram_waddr), .wdata(ram_wdata), .wstrb(ram_wstrb));
+                .we   (boot_load ? ld_dmem_we : ram_we),
+                .waddr(boot_load ? {20'd0, ld_dmem_waddr, 2'b00} : ram_waddr),
+                .wdata(boot_load ? ld_dmem_wdata : ram_wdata),
+                .wstrb(boot_load ? 4'hF : ram_wstrb));
 
 // ---- MMIO (D8, D20, D22) ------------------------------------------------
 reg [31:0] result;
 reg done;
 reg [15:0] sw_meta, sw_sync;
+reg [3:0] btn_meta, btn_s;
 reg rd_sw, rd_zero;
 
-always @(posedge core_clk or negedge rst_n_sync) begin
-    if (!rst_n_sync) begin
+// ---- UART: reading the data register removes a byte. The core sends each MMIO
+// load exactly once, and with speculation only when it is the oldest instruction,
+// so a wrong-path load cannot consume input.
+wire uart_rx_valid, uart_rx_ovf, uart_tx_ready;
+wire [7:0] uart_rx_data;
+wire sel_ust = (dmem_raddr [31:2] == MMIO_UST [31:2]);
+wire sel_udt = (dmem_raddr [31:2] == MMIO_UDT [31:2]);
+wire sel_cyc = (dmem_raddr [31:2] == MMIO_CYC [31:2]);
+wire sel_btn = (dmem_raddr [31:2] == MMIO_BTN [31:2]);
+wire [31:0] cycles;
+reg rd_uart;
+reg [31:0] rd_uart_val;
+
+// boot loader: owns the UART and the imem write port only while boot_load = 1
+wire       ld_rx_pop, ld_tx_push;
+wire [7:0] ld_tx_data;
+uart_loader U_LOADER(
+        .clk(core_clk),
+        .reset_n(rst_n_sync),
+        .active(boot_load),
+        .rx_valid(uart_rx_valid),
+        .rx_data(uart_rx_data),
+        .rx_pop(ld_rx_pop),
+        .tx_ready(uart_tx_ready),
+        .tx_push(ld_tx_push),
+        .tx_data(ld_tx_data),
+        .imem_we(ld_imem_we),
+        .imem_waddr(ld_imem_waddr),
+        .imem_wdata(ld_imem_wdata),
+        .dmem_we(ld_dmem_we),
+        .dmem_waddr(ld_dmem_waddr),
+        .dmem_wdata(ld_dmem_wdata),
+        .loaded(ld_loaded));
+
+uart U_UART(
+        .clk(core_clk),
+        .reset_n(rst_n_sync),
+        .rx(uart_rx),
+        .tx(uart_tx),
+        .rx_valid(uart_rx_valid),
+        .rx_data(uart_rx_data),
+        .rx_pop(boot_load ? ld_rx_pop : (dmem_re & sel_udt)),
+        .rx_overflow(uart_rx_ovf),
+        .tx_ready(uart_tx_ready),
+        .tx_push(boot_load ? ld_tx_push : (dmem_we && dmem_waddr [31:2] == MMIO_UDT [31:2] && dmem_wstrb[0])),
+        .tx_data(boot_load ? ld_tx_data : dmem_wdata[7:0]),
+        .tx_idle());
+
+always @(posedge core_clk or negedge core_rst_n) begin
+    if (!core_rst_n) begin
     sw_meta
     <= 16'd0;
 sw_sync <= 16'd0;
+btn_meta <= 4'd0;
+btn_s <= 4'd0;
 end else begin
         sw_meta <= sw;
 sw_sync <= sw_meta;
+btn_meta <= btn;
+btn_s <= btn_meta;
 end
     end
 
         integer b;
-always @(posedge core_clk or negedge rst_n_sync) begin
-    if (!rst_n_sync)
+always @(posedge core_clk or negedge core_rst_n) begin
+    if (!core_rst_n)
         result
     <= 32'd0;
 else if (dmem_we && dmem_waddr [31:2] == MMIO_RESULT [31:2]) for (b = 0; b < 4; b = b + 1) if (dmem_wstrb[b]) result [8 * b +:8] <= dmem_wdata [8 * b +:8];
 end
 
-        always @(posedge core_clk or negedge rst_n_sync) begin
-    if (!rst_n_sync) done
+        always @(posedge core_clk or negedge core_rst_n) begin
+    if (!core_rst_n) done
     <= 1'b0;
 else if (dmem_we && dmem_waddr [31:2] == MMIO_DONE [31:2]) done <= 1'b1;
 end
 
         // read source, registered in the LA cycle and held like data_mem.rdata
-        always @(posedge core_clk or negedge rst_n_sync) begin
-    if (!rst_n_sync) begin
+        always @(posedge core_clk or negedge core_rst_n) begin
+    if (!core_rst_n) begin
     rd_sw
     <= 1'b0;
 rd_zero <= 1'b0;
+rd_uart <= 1'b0;
+rd_uart_val <= 32'd0;
 end else if (dmem_re) begin
         rd_sw <= (dmem_raddr [31:2] == MMIO_SW [31:2]);
-rd_zero <= r_mmio && (dmem_raddr [31:2] != MMIO_SW [31:2]);
+rd_uart <= sel_ust | sel_udt | sel_cyc | sel_btn;      // registered MMIO values (not only UART)
+rd_uart_val <= sel_cyc ? cycles :
+               sel_btn ? {27'd0, btn_sync[1], btn_s} :
+               sel_ust ? {29'd0, uart_rx_ovf, uart_tx_ready, uart_rx_valid} :
+               uart_rx_valid ? {24'd0, uart_rx_data} : 32'd0;
+rd_zero <= r_mmio && (dmem_raddr [31:2] != MMIO_SW [31:2]) && !sel_ust && !sel_udt && !sel_cyc && !sel_btn;
 end
     end
 
-        assign dmem_rdata = rd_sw ? {16'd0, sw_sync} : rd_zero ? 32'd0
+        assign dmem_rdata = rd_sw ? {16'd0, sw_sync} : rd_uart ? rd_uart_val : rd_zero ? 32'd0
                                                                : ram_rdata;
 
 // ---- performance counters (D21) ------------------------------------------
-wire [31:0] cycles, retired, ooo_count;
+wire [31:0] retired, ooo_count;
 wire [31:0] dc_access, dc_hit, dc_miss, dc_stall;
 wire [31:0] br_count, br_mispred;
 
 perf_counters U_PERF(
         .clk(core_clk),
-        .reset_n(rst_n_sync),
-        .run(rst_n_sync & ~done),
+        .reset_n(core_rst_n),
+        .run(core_rst_n & ~done),
         .commit_valid(dbg_commit_valid),
         .ooo_event(dbg_ooo_event),
         .stall_rob(dbg_stall_rob),

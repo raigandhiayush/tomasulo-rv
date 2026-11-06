@@ -15,7 +15,8 @@ module tb_top_fpga_ooo;
 	wire    [15: 0]     led;
 	wire    [ 7: 0]     seg, an;
 
-	top_fpga_ooo #(.REFRESH_W(2)) DUT (.clk(clk), .reset(reset), .sw(sw), .led(led), .seg(seg), .an(an));
+	top_fpga_ooo #(.REFRESH_W(2)) DUT (.clk(clk), .reset(reset), .sw(sw), .led(led), .seg(seg), .an(an),
+		.uart_rx(1'b1), .uart_tx(), .load_btn(1'b0), .btn(4'd0));
 
 	integer             n_pass = 0, n_fail = 0;
 
