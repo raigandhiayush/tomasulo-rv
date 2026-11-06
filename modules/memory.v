@@ -10,7 +10,7 @@ module instr_mem (
 
 	// Initialize instruction memory from hex file
 	initial begin
-    	$readmemh("../mem_generator/imem_dmem/imem.hex", imem);
+    	$readmemh("imem.hex", imem);
 	end
 
 	// Synchronous instruction fetch using word-aligned PC
