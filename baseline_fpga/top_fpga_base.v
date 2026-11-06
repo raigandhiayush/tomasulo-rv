@@ -13,7 +13,9 @@ module top_fpga_base
 	input       [15: 0]         sw,
 	output      [15: 0]         led,
 	output      [ 7: 0]         seg,                // {DP, CG, CF, CE, CD, CC, CB, CA}, active low
-	output      [ 7: 0]         an                  // active low
+	output      [ 7: 0]         an,                 // active low
+	input                       uart_rx,            // unused: same constraints file as top_fpga_ooo
+	output                      uart_tx             // idle high
 );
 
 	localparam [31: 0] MMIO_RESULT = 32'h1000_0000;
@@ -204,6 +206,7 @@ module top_fpga_base
 	);
 
 	// ---- LEDs and 7-segment display -----------------------------------------
+	assign uart_tx = 1'b1;
 	assign led = {done, exception, result[13:0]};
 
 	reg     [31: 0]             disp;
