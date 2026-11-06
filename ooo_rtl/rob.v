@@ -7,6 +7,10 @@ module rob #(
 ) (
     input  wire                     clk,
     input  wire                     reset_n,
+    // active size: at most rob_lim entries in use (1..ROB_N). It only gates allocation;
+    // pointers, tags, commit and recovery always work on all ROB_N physical entries.
+    // Change it only while the core is in reset (top_fpga_cmp latches it there).
+    input  wire [ROB_W:0]           rob_lim,
     // allocate (dispatch)
     input  wire                     rob_al_valid,
     input  wire [`KIND_W-1:0]       rob_al_kind,
@@ -82,7 +86,12 @@ module rob #(
     wire [ROB_W-1:0] tail_next = (tail == ROB_N-1) ? {ROB_W{1'b0}} : tail + 1'b1;
 
     // ---- status and allocate ------------------------------------------------
-    assign rob_full   = (count == ROB_N);
+    // Full at the active limit. A limit of 0 or above ROB_N means the physical size, so a
+    // bad value can never let count pass ROB_N. With rob_lim = ROB_N this is exactly the
+    // old (count == ROB_N).
+    localparam [ROB_W:0] ROB_NC = ROB_N;
+    wire [ROB_W:0] lim_eff = (rob_lim == 0 || rob_lim > ROB_NC) ? ROB_NC : rob_lim;
+    assign rob_full   = (count >= lim_eff);
     assign rob_empty  = (count == 0);
     assign rob_count  = count;
     assign rob_al_tag = tail;
@@ -213,6 +222,10 @@ module rob #(
     end
 
     // synthesis translate_off
+    initial if ((1 << ROB_W) != ROB_N) begin
+        $display("TEST_FAIL rob: ROB_N = %0d but ROB_W = %0d (need ROB_N = 2^ROB_W)", ROB_N, ROB_W);
+        $finish;
+    end
     // A stale tag is the classic speculation bug: a squashed instruction still in a
     // functional unit completing a newer instruction that reused its ROB entry.
     // Broadcasting to a free entry means something was not killed.
