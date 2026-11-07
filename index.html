@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TOMA-RV Live View</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#151b23; --panel2:#1b232d; --line:#2b3644; --line2:#3a4757;
+  --text:#d7dee8; --dim:#7d8a9a; --faint:#4c5868; --accent:#58a6ff;
+  --ok:#3fb950; --warn:#d29922; --bad:#f85149; --wire:#334152;
+  --b0:#4ea1ff; --b1:#ff9f43; --b2:#c678dd; --b3:#2ed6a1;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+:root[data-theme="light"]{
+  --bg:#f3f5f8; --panel:#ffffff; --panel2:#f6f8fa; --line:#d5dbe3; --line2:#c2cad5;
+  --text:#1c2430; --dim:#5d6b7c; --faint:#a3adba; --accent:#0969da;
+  --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; --wire:#c9d1db;
+  --b0:#1f6feb; --b1:#d9730d; --b2:#8250df; --b3:#0f9d74;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.35 var(--sans);display:flex;flex-direction:column;min-height:100vh}
+button,select,input{font:inherit;color:inherit}
+.mono{font-family:var(--mono)}
+
+/* ---------- top bar ---------- */
+#top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+#top h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px;white-space:nowrap}
+#top h1 small{font-weight:400;color:var(--dim);margin-left:6px}
+.grp{display:flex;align-items:center;gap:6px}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:4px 9px;cursor:pointer;min-width:32px;line-height:18px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;min-width:64px}
+select{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:4px 6px;max-width:220px}
+#speed{width:120px;accent-color:var(--accent)}
+#cyc{font-family:var(--mono);font-size:13px;min-width:140px}
+#cyc b{font-size:15px}
+.badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid}
+.badge.pass{color:var(--ok);border-color:var(--ok)}
+.badge.fail{color:var(--bad);border-color:var(--bad)}
+.badge.unk{color:var(--warn);border-color:var(--warn)}
+#descr{color:var(--dim);font-size:12px;flex:1 1 260px;min-width:200px}
+#tlwrap{padding:4px 14px 6px;background:var(--panel);border-bottom:1px solid var(--line)}
+#timeline{width:100%;height:34px;display:block;cursor:pointer;border-radius:4px}
+#tllegend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin-top:2px;flex-wrap:wrap}
+#tllegend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+/* ---------- main ---------- */
+#main{flex:1;display:flex;gap:0;min-height:0}
+#stage{flex:1;min-width:0;position:relative;overflow:hidden;padding:8px}
+#canvas{position:absolute;left:8px;top:8px;width:1400px;height:1070px;transform-origin:0 0}
+#side{width:370px;flex:0 0 370px;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+@media (max-width: 1100px){ #main{flex-direction:column} #side{width:auto;flex:none;border-left:0;border-top:1px solid var(--line)} #stage{min-height:60vw} }
+
+/* ---------- blocks ---------- */
+.blk{position:absolute;background:var(--panel);border:1px solid var(--line2);border-radius:8px;overflow:hidden;box-shadow:0 1px 0 rgba(0,0,0,.25)}
+.blk .hd{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:11px;font-weight:650;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+.blk .hd .r{margin-left:auto;font-weight:500;text-transform:none;letter-spacing:0;font-family:var(--mono)}
+.blk .bd{padding:5px 8px;font-size:11.5px}
+.blk.act{border-color:var(--accent)}
+.row{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.dim{color:var(--dim)} .faint{color:var(--faint)}
+.k{color:var(--dim);font-size:10.5px}
+.big{font-family:var(--mono);font-size:18px;font-weight:600}
+.asm{font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;padding:0 6px;border-radius:9px;font-size:10px;font-weight:650;line-height:16px;white-space:nowrap;border:1px solid transparent}
+.p-ok{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.p-warn{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.p-bad{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
+.p-acc{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent)}
+.p-dim{background:var(--panel2);color:var(--dim);border-color:var(--line)}
+.flash{animation:flash .5s ease-out}
+@keyframes flash{from{background:color-mix(in srgb,var(--accent) 40%,transparent)}to{background:transparent}}
+
+/* tag chips: one hue per ROB entry, same everywhere */
+.tg{display:inline-block;min-width:24px;text-align:center;font-family:var(--mono);font-size:10.5px;font-weight:700;border-radius:4px;padding:0 3px;line-height:15px;color:#0d1117;cursor:default}
+.wt{display:inline-block;font-family:var(--mono);font-size:10.5px;border-radius:4px;padding:0 3px;line-height:15px;border:1px dashed;background:transparent!important}
+body[data-hl] .tg, body[data-hl] .wt{opacity:.35}
+
+/* tables inside blocks */
+table.t{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:11px;table-layout:fixed}
+table.t td,table.t th{padding:0 4px;height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
+table.t th{height:16px;font-family:var(--sans);font-size:9.5px;font-weight:600;color:var(--dim);text-align:left;text-transform:uppercase;letter-spacing:.4px}
+table.t tr.off td{color:var(--faint)}
+table.t tr.iss td{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+table.t tr.wake td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+
+/* ROB */
+.robrow{height:55px;border-bottom:1px solid var(--line);padding:3px 8px 2px 6px;display:grid;grid-template-columns:34px 1fr auto;grid-template-rows:auto auto;column-gap:6px;align-items:center;position:relative}
+.robrow.off{opacity:.38}
+.robrow .ptr{position:absolute;left:-1px;top:0;bottom:0;width:4px}
+.robrow.head .ptr{background:var(--ok)} .robrow.tail .ptr{background:var(--warn)}
+.robrow.cm{background:color-mix(in srgb,var(--ok) 16%,transparent)}
+.robrow.sq{background:color-mix(in srgb,var(--bad) 18%,transparent)}
+.robrow.wb{box-shadow:inset 0 0 0 2px var(--wbc)}
+.robrow .idx{grid-row:1/3;display:flex;flex-direction:column;align-items:center;gap:2px}
+.robrow .l2{grid-column:2/4;display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden}
+
+/* register file */
+#rfgrid{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:24px;gap:0 6px;padding:4px 8px}
+.rc{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;border-bottom:1px solid var(--line);padding:0 2px;white-space:nowrap;overflow:hidden}
+.rc .rn{width:58px;color:var(--dim);overflow:hidden}
+.rc .rv{flex:1}
+.rc .rv .lz{color:var(--faint)}
+.rc.busy{background:color-mix(in srgb,var(--warn) 9%,transparent)}
+.rc.wr{background:color-mix(in srgb,var(--ok) 26%,transparent)}
+.rc.rn2{box-shadow:inset 0 0 0 1px var(--warn)}
+
+/* predictor */
+.btb{display:grid;grid-template-columns:18px 1fr;font-family:var(--mono);font-size:10px;line-height:14px}
+.btb div{white-space:nowrap;overflow:hidden}
+.btb .on{color:var(--text)} .btb .of{color:var(--faint)}
+.btb .hit{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+.bht{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;margin-top:4px}
+.bht div{height:13px;border-radius:2px;font-size:8.5px;font-family:var(--mono);text-align:center;line-height:13px;color:#0d1117}
+.bht .rd{outline:2px solid var(--accent);outline-offset:-1px}
+.bht .tr{outline:2px solid var(--ok);outline-offset:-1px}
+
+/* cache */
+.cway{display:inline-block;vertical-align:top;width:calc(50% - 4px)}
+table.c{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:9.8px;table-layout:fixed}
+table.c td,table.c th{padding:0 2px;height:19px;white-space:nowrap;overflow:hidden;border-bottom:1px solid var(--line)}
+table.c th{font-family:var(--sans);font-size:9px;color:var(--dim);font-weight:600;text-align:left;height:16px}
+table.c tr.inv td{color:var(--faint)}
+table.c tr.hit td{background:color-mix(in srgb,var(--ok) 22%,transparent)}
+table.c tr.miss td{background:color-mix(in srgb,var(--bad) 20%,transparent)}
+table.c tr.fill td{background:color-mix(in srgb,var(--warn) 18%,transparent)}
+table.c td.dw{color:var(--warn)}
+
+/* stages */
+.stages{display:flex;gap:6px;margin-top:3px}
+.stg{flex:1;border:1px solid var(--line2);border-radius:6px;height:46px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--dim)}
+.stg.on{border-color:var(--b1);color:var(--text)}
+.prog{height:7px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;margin-top:4px}
+.prog > i{display:block;height:100%;background:var(--b2)}
+
+/* wires */
+#wires{position:absolute;left:0;top:0;width:1400px;height:1070px;pointer-events:none;overflow:visible}
+#wires .w{fill:none;stroke:var(--wire);stroke-width:2;stroke-linejoin:round}
+#wires .w.lit{stroke-width:3;stroke-dasharray:10 6;animation:flow .55s linear infinite}
+#wires .bus{stroke-width:2.2}
+#wires .bus.lit{stroke-width:3.4}
+#wires .dot{fill:var(--wire)}
+#wires .lbl{font:600 10px var(--sans);fill:var(--dim);letter-spacing:.3px}
+@keyframes flow{to{stroke-dashoffset:-16}}
+.buspill{position:absolute;height:14px;line-height:14px;font:600 10px var(--mono);padding:0 6px;border-radius:7px;background:var(--panel);border:1px solid var(--line2);color:var(--faint);white-space:nowrap}
+
+/* ---------- side panel ---------- */
+.sec{border-bottom:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.sec > .hd{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:11px;font-weight:650;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);background:var(--panel2)}
+.sec > .hd label{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;display:flex;gap:4px;align-items:center}
+#events{padding:6px 10px 8px;font-size:12px;max-height:240px;overflow:auto}
+#events .ev{padding:2px 0 2px 10px;position:relative}
+#events .ev::before{content:"";position:absolute;left:0;top:8px;width:5px;height:5px;border-radius:50%;background:var(--evc,var(--dim))}
+#events .none{color:var(--dim)}
+#listing{flex:1;overflow:auto;font-family:var(--mono);font-size:11.5px;min-height:160px}
+.li{display:grid;grid-template-columns:44px 1fr auto;gap:6px;padding:0 8px;line-height:19px;white-space:nowrap;border-left:3px solid transparent}
+.li .pc{color:var(--faint)}
+.li .lab{grid-column:1/4;color:var(--accent);font-size:10.5px;padding-top:3px}
+.li.f{border-left-color:var(--dim)}
+.li.d{background:color-mix(in srgb,var(--accent) 14%,transparent);border-left-color:var(--accent)}
+.li.c{background:color-mix(in srgb,var(--ok) 16%,transparent);border-left-color:var(--ok)}
+.li .mk{display:flex;gap:2px}
+.mkf{font-size:9px;color:var(--dim);border:1px solid var(--line2);border-radius:3px;padding:0 3px;line-height:14px}
+#commits{max-height:170px;overflow:auto;font-family:var(--mono);font-size:11px;padding:4px 10px}
+#commits div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#uart{font-family:var(--mono);font-size:12px;padding:4px 10px;white-space:pre-wrap;color:var(--ok);max-height:80px;overflow:auto}
+#err{position:fixed;left:10px;bottom:10px;right:10px;background:#5a1d1d;color:#fff;padding:8px 12px;border-radius:6px;font:12px var(--mono);display:none;z-index:9;white-space:pre-wrap}
+#help{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:8}
+#help .box{background:var(--panel);border:1px solid var(--line2);border-radius:10px;max-width:640px;padding:18px 22px;font-size:13px;line-height:1.5}
+#help h2{margin:0 0 8px;font-size:16px}
+#help kbd{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line2);border-radius:4px;padding:0 5px}
+</style>
+</head>
+<body>
+<div id="top">
+  <h1>TOMA-RV <small>Tomasulo RV32IM core · live RTL view</small></h1>
+  <div class="grp">
+    <select id="prog" title="Program (each trace is a real Icarus simulation of the RTL)"></select>
+    <label class="btn" title="Open a trace .js file made by gen_trace.py">Open…<input id="file" type="file" accept=".js,.json" hidden></label>
+    <span id="vbadge"></span>
+  </div>
+  <div class="grp">
+    <button class="btn" id="bStart" title="First cycle (Home)">⏮</button>
+    <button class="btn" id="bBack" title="Previous cycle (←)">◀</button>
+    <button class="btn primary" id="bPlay" title="Play / pause (Space)">▶ Play</button>
+    <button class="btn" id="bStep" title="Next cycle (→)">▶|</button>
+    <button class="btn" id="bEnd" title="Last cycle (End)">⏭</button>
+  </div>
+  <div class="grp" title="Simulated clock rate for playback. The board runs the core at 50 MHz.">
+    <span class="dim">clock</span><input id="speed" type="range" min="0" max="100" value="30"><span id="speedv" class="mono" style="min-width:74px"></span>
+  </div>
+  <div class="grp">
+    <span class="dim">jump to next</span>
+    <select id="jumpSel">
+      <option value="commit">commit</option>
+      <option value="cdb2">2+ buses at once</option>
+      <option value="ooo">out-of-order completion</option>
+      <option value="flush">mispredict / squash</option>
+      <option value="stall">dispatch stall</option>
+      <option value="miss">cache miss</option>
+      <option value="div">DIV start</option>
+    </select>
+    <button class="btn" id="bJump" title="Jump (N)">⤼</button>
+  </div>
+  <div id="cyc"></div>
+  <button class="btn" id="bTheme" title="Light / dark">◐</button>
+  <button class="btn" id="bHelp" title="How to read this (?)">?</button>
+</div>
+<div id="tlwrap">
+  <canvas id="timeline"></canvas>
+  <div id="tllegend">
+    <span><i style="background:var(--accent)"></i>ROB occupancy (0–8)</span>
+    <span><i style="background:var(--ok)"></i>commit</span>
+    <span><i style="background:var(--bad)"></i>mispredict flush</span>
+    <span><i style="background:var(--warn)"></i>dispatch stall</span>
+    <span id="descr"></span>
+  </div>
+</div>
+<div id="main">
+  <div id="stage"><div id="canvas"><svg id="wires" viewBox="0 0 1400 1070"></svg></div></div>
+  <div id="side">
+    <div class="sec"><div class="hd">This cycle <span id="evcyc" class="mono" style="text-transform:none"></span></div><div id="events"></div></div>
+    <div class="sec" style="flex:1"><div class="hd">Program <label><input type="checkbox" id="follow" checked> follow</label></div><div id="listing"></div></div>
+    <div class="sec"><div class="hd">Commit log (newest first)</div><div id="commits"></div></div>
+    <div class="sec" id="uartsec" style="display:none"><div class="hd">UART output</div><div id="uart"></div></div>
+  </div>
+</div>
+<div id="help"><div class="box">
+  <h2>How to read this view</h2>
+  <p>Every frame is one clock cycle of a real Icarus Verilog simulation of the RTL in <span class="mono">Final/…/ooo_rtl</span> (board top <span class="mono">top_fpga_ooo</span>, default build: speculation on, 2-way write-back L1, slow data memory). <span class="mono">gen_trace.py</span> compares every commit with the reference model (<span class="mono">tools/ref_model.py</span> traces) when it saves a trace, and the badge next to the program menu shows the result.</p>
+  <p>A frame shows the <b>state during the cycle</b>. The highlighted arrows show the transfers that happen at the <b>end</b> of that cycle, on the next rising edge: dispatch into an RS or the LSQ, issue to a unit, a broadcast on a CDB, a commit into the register file.</p>
+  <p>Each ROB entry has its own colour. Its tag chip (<span class="tg" style="background:hsl(210 80% 66%)">T0</span>…) is the same colour wherever that instruction appears, so you can follow one instruction around the machine. Hover a chip to highlight it everywhere. A dashed chip means "waiting for this tag".</p>
+  <p>The four CDBs (ALU, MUL, DIV, LSU) run down the right side of the units, write into the ROB, and loop round to the RS and LSQ inputs on the left. Every consumer listens to all four buses.</p>
+  <p><kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Home</kbd>/<kbd>End</kbd> · <kbd>[</kbd>/<kbd>]</kbd> slower/faster · <kbd>N</kbd> jump · <kbd>?</kbd> help</p>
+  <p class="dim">Click anywhere to close.</p>
+</div></div>
+<div id="err"></div>
+
+<script src="traces/manifest.js"></script>
+<script>
+"use strict";
+window.onerror = function (msg, src, line, col, e) {
+  const el = document.getElementById("err");
+  el.style.display = "block";
+  el.textContent = "Error: " + msg + (line ? " (line " + line + ")" : "") + (e && e.stack ? "\n" + e.stack : "");
+};
+
+// ======================================================================
+// constants mirrored from ooo_defs.vh
+// ======================================================================
+const ABI = ["zero","ra","sp","gp","tp","t0","t1","t2","s0","s1","a0","a1","a2","a3","a4","a5","a6","a7",
+             "s2","s3","s4","s5","s6","s7","s8","s9","s10","s11","t3","t4","t5","t6"];
+const CLS = ["ALU","MUL","DIV","LOAD","STORE","BRANCH","PRE","NOP"];
+const BUS = [{n:"CDB0", u:"ALU", c:"var(--b0)"},{n:"CDB1", u:"MUL", c:"var(--b1)"},
+             {n:"CDB2", u:"DIV", c:"var(--b2)"},{n:"CDB3", u:"LSU", c:"var(--b3)"}];
+const DC_STATE = ["IDLE","WRITEBACK","REFILL","MMIO"];
+const LDST = {ld:["lb","lh","lw","?","lbu","lhu","?","?"], st:["sb","sh","sw","?","?","?","?","?"]};
+const TAG_HUE = [210, 28, 140, 275, 52, 330, 180, 100];
+const tagColor = t => `hsl(${TAG_HUE[t % 8]} 80% 66%)`;
+
+// ======================================================================
+// state
+// ======================================================================
+const S = { tr:null, frames:[], i:0, playing:false, cps:2, acc:0, last:0, prog:new Map(), labels:{}, uartAt:[], commitIdx:[] };
+const $ = id => document.getElementById(id);
+
+// ======================================================================
+// formatting
+// ======================================================================
+const hx = (v, n) => v == null ? "x".repeat(n || 1) : (v >>> 0).toString(16).padStart(n || 1, "0");
+const h0 = v => v == null ? "x" : "0x" + (v >>> 0).toString(16);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function hx8dim(v){
+  if (v == null) return '<span class="faint">xxxxxxxx</span>';
+  const s = hx(v, 8); const m = s.match(/^0*/)[0].length; const k = Math.min(m, 7);
+  return `<span class="lz">${s.slice(0,k)}</span>${s.slice(k)}`;
+}
+const dec = v => v == null ? "x" : ((v | 0) === (v >>> 0) ? String(v >>> 0) : (v >>> 0) + " / " + (v | 0));
+const reg = r => `x${r}<span class="dim">(${ABI[r]})</span>`;
+const rname = r => ABI[r];
+function chip(t, extra){ if (t == null) return '<span class="faint">T?</span>';
+  return `<span class="tg" data-t="${t}" style="background:${tagColor(t)}" ${extra||""}>T${t}</span>`; }
+function waitChip(t){ return `<span class="wt" data-t="${t}" style="color:${tagColor(t)};border-color:${tagColor(t)}" title="waiting for the result of T${t}">⟵T${t}</span>`; }
+function asmAt(pc){ if (pc == null) return "?"; const a = S.prog.get(pc >>> 0); return a ? a : (pc >>> 0) < 4096 ? "unimp" : "?"; }
+const val = v => `<span title="${dec(v)}">${h0(v)}</span>`;
+const pill = (txt, cls, title) => `<span class="pill ${cls}" ${title ? `title="${esc(title)}"` : ""}>${txt}</span>`;
+
+// ======================================================================
+// trace loading
+// ======================================================================
+function decodeTrace(tr){
+  const out = []; let prev = {};
+  for (const d of tr.frames){ const f = Object.assign({}, prev, d); out.push(f); prev = f; }
+  return out;
+}
+function useTrace(tr){
+  S.tr = tr; S.frames = decodeTrace(tr); S.i = 0; S.playing = false;
+  S.prog = new Map(tr.program.map(p => [p[0], p[2]]));
+  S.labels = tr.labels || {};
+  // UART bytes in send order (cycle -> byte) and commit list
+  S.uartAt = []; S.commitIdx = [];
+  S.frames.forEach((f, i) => { if (f.pf.uart_push) S.uartAt.push([i, f.pf.uart_byte]); if (f.cm.v) S.commitIdx.push(i); });
+  $("uartsec").style.display = S.uartAt.length ? "" : "none";
+  const m = tr.meta;
+  const st = m.status;
+  $("vbadge").innerHTML = st === "PASS"
+    ? `<span class="badge pass" title="${m.commitsChecked} commits and the final result/done/exception matched tools/ref_model.py">verified ✓ ${m.commitsChecked} commits</span>`
+    : st === "FAIL" ? `<span class="badge fail" title="${esc((m.fails||[]).join("\n"))}">MISMATCH vs reference</span>`
+    : `<span class="badge unk" title="No reference trace for this program">not checked</span>`;
+  $("descr").textContent = (m.descr ? m.descr + " · " : "") + `${m.cycles} cycles, result 0x${hx(m.result,8)}`;
+  buildListing(); drawTimeline(); setPlaying(false); render(true);
+}
+function loadByName(name){
+  if (window.TOMA_TRACES && window.TOMA_TRACES[name]) { useTrace(window.TOMA_TRACES[name]); return; }
+  const s = document.createElement("script");
+  s.src = "traces/" + encodeURIComponent(name) + ".js";
+  s.onload = () => { if (window.TOMA_TRACES && window.TOMA_TRACES[name]) useTrace(window.TOMA_TRACES[name]); else window.onerror("trace " + name + " did not register"); };
+  s.onerror = () => window.onerror("cannot load traces/" + name + ".js — run gen_trace.py first");
+  document.head.appendChild(s);
+}
+$("file").addEventListener("change", ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  f.text().then(txt => {
+    let j = txt.trim();
+    const k = j.indexOf("]="); if (j.startsWith("window.") && k > 0) j = j.slice(k + 2);
+    j = j.replace(/;\s*$/, "");
+    const tr = JSON.parse(j);
+    window.TOMA_TRACES = window.TOMA_TRACES || {}; window.TOMA_TRACES[tr.meta.name] = tr;
+    const o = document.createElement("option"); o.value = tr.meta.name; o.textContent = tr.meta.name + " (file)";
+    $("prog").appendChild(o); $("prog").value = tr.meta.name; useTrace(tr);
+  });
+});
+
+// ======================================================================
+// static layout: blocks and wires (design coordinates, scaled to fit)
+// ======================================================================
+const B = {
+  fe:  [10, 34, 175, 176, "Fetch"],
+  iq:  [205, 34, 235, 176, "Instruction queue"],
+  dp:  [460, 34, 310, 200, "Decode · dispatch"],
+  rf:  [790, 34, 600, 228, "RAT + register file"],
+  bp:  [10, 290, 142, 470, "Branch predictor"],
+  rsa: [250, 290, 400, 112, "ALU reservation stations"],
+  rsm: [250, 414, 400, 88, "MUL reservation stations"],
+  rsd: [250, 514, 400, 64, "DIV reservation station"],
+  lsq: [250, 590, 400, 170, "Load / store queue"],
+  alu: [670, 290, 210, 112, "ALU (branch, JALR)"],
+  mul: [670, 414, 210, 88, "Multiplier (2 stages)"],
+  div: [670, 514, 210, 64, "Divider (34 cycles)"],
+  dc:  [670, 590, 210, 170, "LSU · L1 D-cache ctrl"],
+  rob: [1000, 290, 390, 470, "Reorder buffer"],
+  cl:  [10, 852, 650, 212, "L1 D-cache contents (2-way × 8 sets × 4 words, write-back)"],
+  mem: [670, 852, 310, 212, "Memory port · MMIO"],
+  pf:  [1000, 852, 390, 212, "Performance counters"],
+};
+// bus geometry
+const LANE_R = [900, 920, 940, 960];             // vertical lanes right of the units
+const LANE_Y = [784, 800, 816, 832];             // bottom run
+const LANE_L = [232, 216, 200, 184];             // vertical lanes left of the RS
+const TAP_Y  = [346, 458, 546, 650];             // where each unit drives its bus
+const WAKE_Y = { rsa: 362, rsm: 476, rsd: 554, lsq: 690 };
+const DISP_Y = { rsa: 302, rsm: 426, rsd: 526, lsq: 602 };
+const W = {};   // wire elements by id
+
+function svgEl(tag, attrs){ const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function wire(id, pts, opt){
+  opt = opt || {};
+  const d = "M" + pts.map(p => p.join(",")).join(" L");
+  const p = svgEl("path", {d, class: "w" + (opt.bus ? " bus" : ""), "marker-end": opt.noArrow ? "" : "url(#arr)"});
+  if (opt.color) p.dataset.color = opt.color;
+  $("wires").appendChild(p); W[id] = p; return p;
+}
+function dot(x, y){ $("wires").appendChild(svgEl("circle", {cx:x, cy:y, r:2.8, class:"dot"})); }
+function label(x, y, t, anchor){ const e = svgEl("text", {x, y, class:"lbl", "text-anchor": anchor || "start"}); e.textContent = t; $("wires").appendChild(e); }
+
+function buildStatic(){
+  const cv = $("canvas");
+  for (const k in B){
+    const [x, y, w, h, title] = B[k];
+    const d = document.createElement("div");
+    d.className = "blk"; d.id = "b_" + k;
+    d.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    d.innerHTML = `<div class="hd">${title}<span class="r" id="h_${k}"></span></div><div class="bd" id="c_${k}"></div>`;
+    cv.appendChild(d);
+  }
+  const svg = $("wires");
+  const defs = svgEl("defs", {});
+  const mk = svgEl("marker", {id:"arr", viewBox:"0 0 10 10", refX:"9", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto-start-reverse"});
+  mk.appendChild(svgEl("path", {d:"M0,1 L10,5 L0,9 z", fill:"context-stroke"}));
+  defs.appendChild(mk); svg.appendChild(defs);
+
+  // front end
+  wire("fe_iq", [[185,122],[204,122]]);
+  wire("iq_dp", [[440,122],[459,122]]);
+  wire("redir_dp", [[615,34],[615,20],[97,20],[97,33]], {color:"var(--bad)"});
+  label(330, 15, "redirect at dispatch (JAL / BTB fix)", "middle");
+  wire("redir_ex", [[690,290],[690,270],[120,270],[120,211]], {color:"var(--bad)"});
+  label(400, 266, "flush / JALR target", "middle");
+  wire("fe_bp", [[60,289],[60,211]], {color:"var(--accent)"});
+  label(64, 250, "predict");
+  wire("rename", [[770,110],[789,110]], {color:"var(--warn)"});
+  wire("alloc", [[750,234],[750,278],[1030,278],[1030,289]], {color:"var(--warn)"});
+  label(890, 274, "allocate ROB entry", "middle");
+  wire("commit", [[1300,290],[1300,263]], {color:"var(--ok)"});
+  label(1294, 282, "commit → register file", "end");
+
+  // dispatch fan-out
+  wire("disp_trunk", [[460,222],[165,222],[165,DISP_Y.lsq]], {noArrow:true, color:"var(--accent)"});
+  for (const k of ["rsa","rsm","rsd","lsq"]) wire("disp_" + k, [[165, DISP_Y[k]],[249, DISP_Y[k]]], {color:"var(--accent)"});
+  label(170, 236, "dispatch");
+
+  // issue paths
+  wire("iss_rsa", [[650, TAP_Y[0]],[669, TAP_Y[0]]], {color:"var(--b0)"});
+  wire("iss_rsm", [[650, TAP_Y[1]],[669, TAP_Y[1]]], {color:"var(--b1)"});
+  wire("iss_rsd", [[650, TAP_Y[2]],[669, TAP_Y[2]]], {color:"var(--b2)"});
+  wire("iss_lsq", [[650, TAP_Y[3]],[669, TAP_Y[3]]], {color:"var(--b3)"});
+
+  // four buses: unit -> right lane -> bottom -> left lane -> up
+  for (let k = 0; k < 4; k++){
+    wire("bus" + k, [[880, TAP_Y[k]],[LANE_R[k], TAP_Y[k]],[LANE_R[k], LANE_Y[k]],[LANE_L[k], LANE_Y[k]],[LANE_L[k], 300]],
+         {bus:true, noArrow:true, color:BUS[k].c});
+  }
+  // ROB write port and RS/LSQ wake-up taps
+  wire("wb_rob", [[LANE_R[0], 720],[999, 720]], {color:"var(--text)"});
+  for (let k = 0; k < 4; k++) if (720 > TAP_Y[k]) dot(LANE_R[k], 720);
+  label(1000 - 4, 714, "CDB → ROB", "end");
+  for (const r of ["rsa","rsm","rsd","lsq"]){
+    wire("wake_" + r, [[LANE_L[3], WAKE_Y[r]],[249, WAKE_Y[r]]], {color:"var(--text)"});
+    for (let k = 0; k < 4; k++) dot(LANE_L[k], WAKE_Y[r]);
+  }
+  label(208, 296, "CDB ×4", "middle");
+  // memory
+  wire("mem", [[775,760],[775,851]], {color:"var(--b3)"});
+
+  // bus pills on the bottom run
+  for (let k = 0; k < 4; k++){
+    const p = document.createElement("div");
+    p.className = "buspill"; p.id = "bp" + k;
+    p.style.left = (300 + 0) + "px"; p.style.top = (LANE_Y[k] - 7) + "px";
+    cv.appendChild(p);
+  }
+  // hover highlight of one tag everywhere
+  document.body.addEventListener("mouseover", e => {
+    const t = e.target.closest && e.target.closest("[data-t]");
+    if (t) document.body.dataset.hl = t.dataset.t; else delete document.body.dataset.hl;
+  });
+  const css = document.createElement("style");
+  css.textContent = [0,1,2,3,4,5,6,7].map(t =>
+    `body[data-hl="${t}"] [data-t="${t}"]{opacity:1!important;outline:2px solid var(--text);outline-offset:1px}` +
+    `body[data-hl="${t}"] .robrow[data-t="${t}"]{outline:none;box-shadow:inset 0 0 0 2px ${tagColor(t)}}`).join("\n");
+  document.head.appendChild(css);
+}
+function lit(id, on, color){
+  const p = W[id]; if (!p) return;
+  p.classList.toggle("lit", !!on);
+  p.style.stroke = on ? (color || p.dataset.color || "var(--accent)") : "";
+}
+
+// ======================================================================
+// per-frame helpers
+// ======================================================================
+function busesWith(f, t){ const r = []; f.cdb.forEach((b, k) => { if (b.v && b.tag === t) r.push(k); }); return r; }
+function robPc(f, t){ const e = f.rob.e[t]; return e ? e.pc : null; }
+function tagAsm(f, t){ return asmAt(robPc(f, t)); }
+function where(f, t){
+  // where is the instruction with ROB tag t right now? (for the ROB status column)
+  const u = []; const rsn = {alu:"ALU RS", mul:"MUL RS", div:"DIV RS"};
+  for (const k of ["alu","mul","div"]){
+    const rs = f.rs[k];
+    rs.e.forEach((e, i) => { if (e.b && e.tag === t){
+      if (rs.iss && rs.sel === i) u.push(["issue → " + k.toUpperCase(), "p-acc"]);
+      else if (!e.qjv && !e.qkv) u.push([rsn[k] + ": ready", "p-acc"]);
+      else u.push([rsn[k] + ": operands", "p-warn"]);
+    }});
+  }
+  const fu = f.fu;
+  if (fu.mul.s1v && fu.mul.s1tag === t) u.push(["MUL stage 1", "p-acc"]);
+  if (fu.mul.s2v && fu.mul.s2tag === t) u.push(["MUL stage 2", "p-acc"]);
+  if (fu.div.busy && fu.div.optag === t) u.push([`DIV ${fu.div.count}/32`, "p-acc"]);
+  f.lsq.e.forEach((e, i) => { if (e.b && e.tag === t){
+    if (e.st) u.push([e.srd ? "LSQ: wait commit" : (e.qjv || e.qkv) ? "LSQ: operands" : "LSQ: wait head", e.srd ? "p-dim" : "p-warn"]);
+    else u.push([e.qjv ? "LSQ: base" : (f.lsq.laGo && f.lsq.head === i) ? "LSQ: load issue" : "LSQ: wait head", "p-warn"]);
+  }});
+  if (f.lsq.ldPend && f.lsq.ldTag === t) u.push(["load in cache/memory", "p-acc"]);
+  return u;
+}
+function wakeups(f, rsE){ // entries in an RS/LSQ that capture an operand at the end of this cycle
+  let n = 0; const rows = new Set();
+  rsE.forEach((e, i) => { if (!e.b) return;
+    for (const b of f.cdb) if (b.v){ if (e.qjv && e.qj === b.tag){ n++; rows.add(i); } if (e.qkv && e.qk === b.tag){ n++; rows.add(i); } } });
+  return {n, rows};
+}
+function opnd(v, qv, q, f){
+  if (qv){ const bs = busesWith(f, q); return waitChip(q) + (bs.length ? ` <span style="color:${BUS[bs[0]].c}">◀${BUS[bs[0]].n}</span>` : ""); }
+  return val(v);
+}
+
+// ======================================================================
+// block renderers
+// ======================================================================
+const R = {};
+function set(id, html){ const el = $(id); if (el._h !== html){ el.innerHTML = html; el._h = html; } }
+
+R.fe = f => {
+  const fe = f.fe; let h = `<div class="k">fetch PC</div><div class="big">${hx(fe.pc,8)}</div>`;
+  h += `<div class="asm dim" style="margin-bottom:4px">${esc(asmAt(fe.pc))}</div>`;
+  if (fe.redir) h += `<div>${pill("REDIRECT", "p-bad")} → <span class="mono">${h0(fe.newPc)}</span></div>`;
+  else if (!fe.can) h += `<div>${pill("IQ full", "p-warn")} <span class="dim">fetch waits</span></div>`;
+  else h += `<div class="dim">next: <span class="mono">${fe.ptaken ? h0(fe.ptgt) + " (predicted taken)" : h0((fe.pc + 4) >>> 0)}</span></div>`;
+  h += `<div style="margin-top:6px" class="k">word arriving from imem</div>`;
+  h += fe.pend ? `<div class="row"><span class="mono">${hx(fe.pendPc,3)}</span><span class="asm">${esc(asmAt(fe.pendPc))}</span>${fe.pendPred ? pill("↷", "p-acc", "predicted taken") : ""}</div>${fe.push ? "" : `<div class="dim">dropped (redirect)</div>`}`
+                : `<div class="faint">none</div>`;
+  if (fe.hold) h += `<div style="margin-top:4px">${pill("HOLD", "p-warn", "dispatch waits for the JALR to resolve")} <span class="dim">JALR unresolved</span></div>`;
+  set("c_fe", h); set("h_fe", "");
+  $("b_fe").classList.toggle("act", !!(fe.push || fe.redir));
+};
+R.iq = f => {
+  const iq = f.iq; let h = "";
+  for (let k = 0; k < iq.n; k++){
+    const e = iq.e[k];
+    if (e) h += `<div class="row" style="height:31px;border-bottom:1px solid var(--line)"><span class="faint mono" style="width:14px">${e[0]}</span><span class="mono dim">${hx(e[1],3)}</span><span class="asm" style="flex:1">${esc(asmAt(e[1]))}</span>${e[3] ? pill("↷", "p-acc", "predicted taken") : ""}${k === 0 ? pill(f.dp.fire ? "→ dispatch" : "head", f.dp.fire ? "p-acc" : "p-dim") : ""}</div>`;
+    else h += `<div class="row faint" style="height:31px;border-bottom:1px solid var(--line)">—</div>`;
+  }
+  set("c_iq", h); set("h_iq", f.fe.redir ? `<span style="color:var(--bad)">flushed by redirect</span>` : `${iq.cnt}/${iq.n}`);
+};
+R.dp = f => {
+  const d = f.dp; let h = "";
+  if (!d.v){ set("c_dp", `<div class="dim" style="padding-top:30px;text-align:center">instruction queue empty</div>`); set("h_dp", ""); $("b_dp").classList.remove("act"); return; }
+  const cls = CLS[d.cls];
+  h += `<div class="row"><span class="mono dim">${hx(d.pc,3)}</span><span class="asm" style="font-size:13px;font-weight:600;flex:1">${esc(asmAt(d.pc))}</span>${pill(cls, "p-dim")}</div>`;
+  const srcTxt = (s, r, t, v) => s === "x0" ? `<span class="dim">x0 → 0</span>` :
+    s === "ARF" ? `<span class="dim">reg file</span> ${val(v)}` :
+    s === "ROB" ? `<span class="dim">ROB</span> ${chip(t)} ${val(v)}` :
+    s === "CDB" ? `<span style="color:${BUS[busesWith(f, t)[0] ?? 0].c}">bypass ${BUS[busesWith(f, t)[0] ?? 0].n}</span> ${chip(t)} ${val(v)}` :
+    `${waitChip(t)} <span class="dim">not ready</span>`;
+  h += `<div style="margin-top:4px">`;
+  if (d.u1) h += `<div class="row"><span class="k" style="width:52px">rs1 ${esc(rname(d.rs1))}</span>${srcTxt(d.s1, d.rs1, d.t1, d.v1)}</div>`;
+  if (d.u2) h += `<div class="row"><span class="k" style="width:52px">rs2 ${esc(rname(d.rs2))}</span>${srcTxt(d.s2, d.rs2, d.t2, d.v2)}</div>`;
+  if (d.useImm || d.cls === 3 || d.cls === 4) h += `<div class="row"><span class="k" style="width:52px">imm</span>${val(d.imm)}</div>`;
+  if (d.jalr) h += `<div class="row"><span class="k" style="width:52px">link</span>${val((d.pc + 4) >>> 0)} <span class="dim">(in vk)</span></div>`;
+  if (d.br) h += `<div class="row"><span class="k" style="width:52px">target</span>${val(d.brTgt)} <span class="dim">${d.pred ? "predicted taken" : "predicted not taken"}</span></div>`;
+  if (d.wr && d.rd) h += `<div class="row"><span class="k" style="width:52px">rd</span>${reg(d.rd)} ← ${chip(d.tag)} <span class="dim">${d.fire ? "(rename)" : "(tag it will get)"}</span></div>`;
+  h += `</div><div style="margin-top:5px" class="row">`;
+  if (d.fire){
+    const unit = {0:"ALU RS", 5:"ALU RS", 1:"MUL RS", 2:"DIV RS", 3:"LSQ", 4:"LSQ", 6:"ROB only (ready now)", 7:"ROB only (illegal → NOP)"}[d.cls];
+    const slot = {0:f.rs.alu.free, 5:f.rs.alu.free, 1:f.rs.mul.free, 2:f.rs.div.free, 3:f.lsq.tail, 4:f.lsq.tail}[d.cls];
+    h += `${pill("DISPATCH", "p-ok")} ${chip(d.tag)} → ${unit}${slot != null ? "[" + slot + "]" : ""}`;
+  } else h += `${pill("STALL", "p-warn")} <span>${esc(d.reason)}</span>`;
+  h += `</div><div class="row" style="margin-top:3px;gap:4px">`;
+  if (d.redir) h += pill("redirect fetch → " + h0(d.redirPc), "p-bad");
+  if (d.holdSet) h += pill("JALR: hold dispatch", "p-warn");
+  if (d.ck) h += pill("RAT checkpoint", "p-acc");
+  h += `</div>`;
+  set("c_dp", h); set("h_dp", d.fire ? "fires" : "stalled");
+  $("b_dp").classList.toggle("act", !!d.fire);
+};
+R.rf = (f, p) => {
+  let h = `<div id="rfgrid">`;
+  // column-major: x0..x7 first column
+  for (let row = 0; row < 8; row++) for (let col = 0; col < 4; col++){
+    const r = col * 8 + row;
+    const v = r === 0 ? 0 : f.rf[r - 1];
+    const busy = r > 0 && f.rat.busy[r - 1];
+    const t = r > 0 ? f.rat.tag[r - 1] : null;
+    const wr = f.cm.v && f.cm.has_rd && f.cm.rd === r && r !== 0;
+    const ren = f.dp.fire && f.dp.wr && f.dp.rd === r && r !== 0;
+    h += `<div class="rc${busy ? " busy" : ""}${wr ? " wr" : ""}${ren ? " rn2" : ""}" title="x${r} (${ABI[r]}) = ${dec(v)}${busy ? ", renamed to ROB entry T" + t : ""}">` +
+         `<span class="rn">x${r} ${ABI[r]}</span><span class="rv">${hx8dim(v)}</span>${busy ? chip(t) : ""}</div>`;
+  }
+  h += `</div>`;
+  set("c_rf", h);
+  const ck = f.ck.v.map((v, i) => v ? chip(f.ck.id[i]) : `<span class="faint">–</span>`).join(" ");
+  set("h_rf", `<span class="dim">branch checkpoints</span> ${ck}`);
+  $("c_rf").style.padding = "0";
+};
+R.rob = f => {
+  const rb = f.rob; let h = "";
+  const wbBus = {}; f.cdb.forEach((b, k) => { if (b.v) wbBus[b.tag] = k; });
+  for (let i = 0; i < rb.e.length; i++){
+    const e = rb.e[i];
+    const isHead = rb.head === i, isTail = rb.tail === i && !rb.full;
+    const cm = f.cm.v && f.cm.tag === i;
+    let cls = "robrow" + (e.v ? "" : " off") + (isHead ? " head" : "") + (isTail && !isHead ? " tail" : "") + (cm ? " cm" : "") + (e.sq ? " sq" : "");
+    let style = "";
+    if (wbBus[i] != null && e.v){ cls += " wb"; style = `--wbc:${BUS[wbBus[i]].c}`; }
+    const ptrs = (isHead ? pill("HEAD", "p-ok") : "") + (rb.tail === i && !rb.full ? pill("TAIL", "p-warn") : "");
+    let state = "";
+    if (!e.v) state = pill("free", "p-dim");
+    else if (e.sq) state = pill("SQUASHED", "p-bad");
+    else if (cm) state = pill("COMMIT", "p-ok");
+    else if (wbBus[i] != null) state = `<span class="pill" style="color:${BUS[wbBus[i]].c};border-color:${BUS[wbBus[i]].c}">◀ ${BUS[wbBus[i]].n}</span>`;
+    else if (e.r) state = pill("done", "p-ok");
+    else { const w = where(f, i); state = w.length ? w.map(x => pill(x[0], x[1])).join(" ") : pill("executing", "p-acc"); }
+    const dest = !e.v ? "" : e.k === 1 ? `<span class="dim">store</span>` : e.k === 2 ? `<span class="dim">${e.c ? "branch" : "jalr"}</span>${e.h && e.rd ? " → " + esc(rname(e.rd)) : ""}` : e.h && e.rd ? `→ ${esc(rname(e.rd))}` : `<span class="dim">no dest</span>`;
+    let v2 = "";
+    if (e.v && e.r) v2 = e.k === 2 && e.c ? `<span class="dim">target</span> ${val(e.val)} ${e.t ? pill("taken", "p-dim") : pill("not taken", "p-dim")}${e.m ? " " + pill("MISPREDICTED", "p-bad") : ""}`
+                       : e.k === 1 ? `<span class="dim">address and data ready</span>` : val(e.val);
+    else if (e.v) v2 = `<span class="faint">value pending</span>`;
+    if (e.v && e.x) v2 += " " + pill("illegal", "p-bad");
+    if (e.v && e.o) v2 += " " + pill("finished out of order", "p-acc", "completed while an older instruction was still waiting (counts toward ooo_count when it commits)");
+    h += `<div class="${cls}" data-t="${i}" style="${style}"><span class="ptr"></span>
+      <div class="idx">${chip(i)}</div>
+      <div class="row"><span class="mono dim">${e.v ? hx(e.pc,3) : ""}</span><span class="asm" style="font-weight:600">${e.v ? esc(asmAt(e.pc)) : ""}</span><span class="mono">${dest}</span></div>
+      <div class="row" style="justify-content:flex-end;gap:3px">${ptrs}${state}</div>
+      <div class="l2">${v2}</div></div>`;
+  }
+  set("c_rob", h); $("c_rob").style.padding = "0";
+  set("h_rob", `${rb.count}/8${rb.full ? " FULL" : ""} · head ${rb.head} · tail ${rb.tail}${rb.flush ? " · FLUSH" : ""}`);
+};
+function rsTable(f, key, unit){
+  const rs = f.rs[key]; const wk = wakeups(f, rs.e);
+  let h = `<table class="t"><colgroup><col style="width:20px"><col style="width:34px"><col><col style="width:96px"><col style="width:96px"><col style="width:64px"></colgroup>`;
+  h += `<tr><th>#</th><th>tag</th><th>instruction</th><th>Vj / Qj</th><th>Vk / Qk</th><th>state</th></tr>`;
+  rs.e.forEach((e, i) => {
+    const iss = rs.iss && rs.sel === i;
+    if (!e.b){ h += `<tr class="off"><td>${i}</td><td colspan="5">free</td></tr>`; return; }
+    const ready = !e.qjv && !e.qkv;
+    const sq = f.rob.e[e.tag] && f.rob.e[e.tag].sq;
+    const st = sq ? pill("SQUASHED", "p-bad") : iss ? pill("ISSUE", "p-acc") : ready ? pill(key === "div" && !rs.iss ? "wait unit" : "ready", "p-ok") : pill("waiting", "p-warn");
+    h += `<tr class="${iss ? "iss" : ""}${wk.rows.has(i) ? " wake" : ""}"><td>${i}</td><td>${chip(e.tag)}</td><td class="asm">${esc(tagAsm(f, e.tag))}</td>` +
+         `<td>${opnd(e.vj, e.qjv, e.qj, f)}</td><td>${opnd(e.vk, e.qkv, e.qk, f)}</td><td>${st}</td></tr>`;
+  });
+  return h + `</table>`;
+}
+R.rs = f => {
+  for (const [k, id, n] of [["alu","rsa",3],["mul","rsm",2],["div","rsd",1]]){
+    set("c_" + id, rsTable(f, k)); $("c_" + id).style.padding = "0";
+    const busy = f.rs[k].e.filter(e => e.b).length;
+    set("h_" + id, `${busy}/${n}${f.rs[k].full ? " · FULL" : ""}`);
+  }
+};
+R.lsq = f => {
+  const q = f.lsq; let h = "";
+  const wk = wakeups(f, q.e);
+  for (let i = 0; i < q.e.length; i++){
+    const e = q.e[i]; const head = q.head === i;
+    const rowStyle = `height:34px;border-bottom:1px solid var(--line);padding:1px 6px;${head ? "box-shadow:inset 3px 0 0 var(--ok);" : ""}${wk.rows.has(i) ? "background:color-mix(in srgb,var(--accent) 10%,transparent);" : ""}`;
+    if (!e.b){ h += `<div style="${rowStyle}" class="faint mono">${i} ${head ? "◀ head" : ""} free</div>`; continue; }
+    let st;
+    if (f.rob.e[e.tag] && f.rob.e[e.tag].sq) st = pill("SQUASHED", "p-bad");
+    else if (e.st) st = e.srd ? (head && q.stCommit ? pill("COMMIT → cache", "p-ok") : pill("done, waits for commit", "p-dim"))
+                         : (e.qjv || e.qkv) ? pill("waiting operands", "p-warn") : head && q.srGo ? pill("ready → CDB3", "p-acc") : pill("waits for head", "p-warn");
+    else st = e.qjv ? pill("waiting base", "p-warn") : head && q.laGo ? pill("ISSUE → cache", "p-acc") : head ? pill(q.stall ? "cache busy" : "at head", "p-warn") : pill("waits for head", "p-warn");
+    const addr = e.qjv ? `<span class="faint">addr ?</span>` : `<span class="dim">addr</span> ${h0((e.vj + e.imm) >>> 0)}`;
+    h += `<div style="${rowStyle}"><div class="row"><span class="mono faint" style="width:10px">${i}</span>${chip(e.tag)}<span class="asm" style="flex:1">${esc(tagAsm(f, e.tag))}</span>${st}</div>` +
+         `<div class="row mono" style="font-size:10.5px;padding-left:16px"><span class="dim">base</span> ${opnd(e.vj, e.qjv, e.qj, f)} <span class="dim">${(e.imm | 0) < 0 ? "−" + (-(e.imm | 0)) : "+" + (e.imm | 0)}</span> · ${addr}${e.st ? ` · <span class="dim">data</span> ${opnd(e.vk, e.qkv, e.qk, f)}` : ""}</div></div>`;
+  }
+  set("c_lsq", h); $("c_lsq").style.padding = "0";
+  set("h_lsq", `${q.count}/4 · head ${q.head}${q.ldPend ? " · load in flight" : ""}`);
+};
+R.alu = f => {
+  const a = f.fu.alu; let h;
+  if (!a.v) h = `<div class="dim" style="padding-top:22px;text-align:center">idle</div>`;
+  else {
+    const isBr = (a.op >> 4) & 1, isJalr = (a.op >> 5) & 1, pred = (a.op >> 6) & 1;
+    h = `<div class="row">${chip(a.tag)}<span class="asm" style="font-weight:600">${esc(tagAsm(f, a.tag))}</span></div>`;
+    if (isBr){
+      h += `<div class="mono" style="margin-top:3px">${val(a.vj)} vs ${val(a.vk)}</div>`;
+      h += `<div class="row" style="margin-top:3px">${a.taken ? pill("TAKEN", "p-acc") : pill("NOT TAKEN", "p-dim")}<span class="dim">predicted ${pred ? "taken" : "not taken"}</span></div>`;
+      h += `<div class="row" style="margin-top:3px">${f.rob.aluMis ? pill("MISPREDICT → flush next cycle", "p-bad") : pill("prediction correct", "p-ok")}</div>`;
+    } else if (isJalr){
+      h += `<div class="mono" style="margin-top:3px">target ${val(a.tgt)}</div><div class="mono">link ${val(a.res)} → CDB0</div>`;
+    } else {
+      h += `<div class="mono" style="margin-top:3px">${val(a.vj)} , ${val(a.vk)}</div>`;
+      h += `<div class="mono" style="margin-top:3px">= <b>${val(a.res)}</b> <span style="color:var(--b0)">→ CDB0</span></div>`;
+    }
+  }
+  set("c_alu", h); set("h_alu", a.v ? "busy" : "");
+  $("b_alu").classList.toggle("act", !!a.v);
+};
+R.mul = f => {
+  const m = f.fu.mul;
+  const sq = t => f.rob.e[t] && f.rob.e[t].sq ? " " + pill("squash", "p-bad") : "";
+  const st = (v, t, n) => `<div class="stg${v ? " on" : ""}">${n}${v ? `<div>${chip(t)}${sq(t)}</div>` : `<div class="faint">—</div>`}</div>`;
+  let h = `<div class="stages">${st(m.start, m.stag, "issue")}${st(m.s1v, m.s1tag, "stage 1")}${st(m.s2v, m.s2tag, "stage 2")}</div>`;
+  set("c_mul", h); set("h_mul", m.s2v ? "→ CDB1" : m.s1v ? "busy" : "");
+  $("b_mul").classList.toggle("act", !!(m.s1v || m.s2v || m.start));
+};
+R.div = f => {
+  const d = f.fu.div; let h;
+  if (d.busy) h = `<div class="row">${chip(d.optag)}${f.rob.e[d.optag] && f.rob.e[d.optag].sq ? pill("abort (squash)", "p-bad") : ""}<span class="asm">${esc(tagAsm(f, d.optag))}</span><span class="mono dim" style="margin-left:auto">${d.count}/32</span></div><div class="prog"><i style="width:${(d.count / 32 * 100).toFixed(1)}%"></i></div>`;
+  else if (f.cdb[2].v) h = `<div class="row">${chip(f.cdb[2].tag)} <span style="color:var(--b2)">result → CDB2</span> ${val(f.cdb[2].val)}</div>`;
+  else if (d.start) h = `<div class="row">starting ${chip(d.stag)}</div>`;
+  else h = `<div class="dim" style="text-align:center;padding-top:4px">idle</div>`;
+  set("c_div", h); set("h_div", d.busy ? "busy" : "");
+  $("b_div").classList.toggle("act", !!(d.busy || d.start));
+};
+R.dc = f => {
+  const c = f.dc, q = f.lsq; let h = "";
+  h += `<div class="row"><span class="k">cache state</span>${pill(DC_STATE[c.state] || "?", c.state ? "p-warn" : "p-dim")}${c.stall ? pill("stall", "p-warn", "the cache is busy or the write buffer is full: the LSU starts nothing") : ""}</div>`;
+  if (c.req){
+    const set_ = (c.addr >>> 4) & 7;
+    h += `<div class="row" style="margin-top:4px"><span class="k">request</span>${pill(c.we ? "WRITE" : "READ", "p-acc")}<span class="mono">${h0(c.addr)}</span></div>`;
+    h += `<div class="row">${c.mmio ? pill("MMIO (uncached)", "p-dim") : c.hit ? pill("HIT", "p-ok") : c.miss ? pill("MISS", "p-bad") : ""}${!c.mmio && c.acc ? `<span class="dim">set ${set_}</span>` : ""}</div>`;
+  }
+  if (c.state === 1 || c.state === 2) h += `<div class="row dim">${c.state === 1 ? "writing back" : "refilling"} set ${c.qSet} way ${c.qWay}, word ${c.cnt}</div>`;
+  if (c.resp) h += `<div class="row"><span class="k">load data</span>${val(c.rdata)} <span style="color:var(--b3)">→ CDB3</span></div>`;
+  h += `<div style="margin-top:6px;border-top:1px solid var(--line);padding-top:4px" class="k">LSU head</div>`;
+  if (q.laGo) h += `<div class="row">${pill("load issue", "p-acc")} ${chip(q.e[q.head].tag)} <span class="mono">${h0(q.hAddr)}</span></div>`;
+  else if (q.srGo) h += `<div class="row">${pill("store ready", "p-acc")} ${chip(q.e[q.head].tag)} <span class="dim">→ CDB3</span></div>`;
+  else if (q.stCommit) h += `<div class="row">${pill("store commit", "p-ok")} ${chip(q.e[q.head].tag)} <span class="mono">${h0(q.hAddr)}</span></div>`;
+  else h += `<div class="dim">—</div>`;
+  if (q.ldPend) h += `<div class="row">${pill("load in flight", "p-warn")} ${chip(q.ldTag)}</div>`;
+  set("c_dc", h); set("h_dc", "");
+  $("b_dc").classList.toggle("act", !!(c.req || c.state));
+};
+R.bp = f => {
+  const b = f.bp, fe = f.fe;
+  const fi = (fe.pc >>> 2) & 15, ui = (f.bpf.upPc >>> 2) & 15;
+  let h = `<div class="k">BTB (16) · target</div><div class="btb">`;
+  for (let i = 0; i < 16; i++){
+    const on = b.bv[i]; const hit = fe.ptaken && i === fi;
+    h += `<div class="${on ? "on" : "of"}${hit ? " hit" : ""}">${i}</div><div class="${on ? "on" : "of"}${hit ? " hit" : ""}">${on ? h0(b.btg[i]) + (b.bu[i] ? " J" : "") : "—"}</div>`;
+  }
+  h += `</div><div class="k" style="margin-top:6px">BHT 2-bit counters (64)</div><div class="bht">`;
+  const col = ["hsl(0 60% 55%)", "hsl(30 70% 62%)", "hsl(150 45% 55%)", "hsl(150 60% 42%)"];
+  const ri = (fe.pc >>> 2) & 63, ti = (f.bpf.upPc >>> 2) & 63;
+  for (let i = 0; i < 64; i++){
+    const v = b.bht[i];
+    h += `<div style="background:${v == null ? "var(--panel2)" : col[v]}" class="${i === ri ? "rd" : ""}${f.bpf.up && i === ti ? " tr" : ""}" title="BHT[${i}] = ${["strong not-taken","weak not-taken","weak taken","strong taken"][v] || "x"}">${v ?? ""}</div>`;
+  }
+  h += `</div><div class="dim" style="margin-top:5px;font-size:10.5px">${fe.ptaken ? `fetch ${h0(fe.pc)} hits BTB[${fi}]` : "fetch: no taken prediction"}${f.bpf.up ? `<br>train: branch ${h0(f.bpf.upPc)} commits` : ""}${f.bpf.jal ? "<br>learn JAL target" : ""}</div>`;
+  set("c_bp", h);
+};
+R.cl = f => {
+  const L = f.dcl, c = f.dc;
+  // which line is touched this cycle
+  let hitLine = -1, missSet = -1, fill = -1;
+  if (c.acc && !c.mmio){
+    const s = (c.addr >>> 4) & 7, tg = (c.addr >>> 7) & 31;
+    for (let w = 0; w < 2; w++) if (L.valid[w * 8 + s] && L.tags[w * 8 + s] === tg) hitLine = w * 8 + s;
+    if (c.miss) missSet = s;
+  }
+  if (c.state === 1 || c.state === 2) fill = c.qWay * 8 + c.qSet;
+  let h = "";
+  for (let w = 0; w < 2; w++){
+    h += `<div class="cway" style="${w ? "margin-left:8px" : ""}"><table class="c"><colgroup><col style="width:18px"><col style="width:22px"><col style="width:40px"><col><col><col><col></colgroup><tr><th colspan="7" style="color:var(--text)">way ${w}</th></tr><tr><th>set</th><th>V D</th><th>base</th><th>word 0</th><th>word 1</th><th>word 2</th><th>word 3</th></tr>`;
+    for (let s = 0; s < 8; s++){
+      const l = w * 8 + s; const v = L.valid[l], d = L.dirty[l];
+      const cls = l === hitLine ? "hit" : l === fill ? "fill" : (s === missSet ? "miss" : !v ? "inv" : "");
+      const base = L.tags[l] == null ? "—" : h0(((L.tags[l] << 7) | (s << 4)) >>> 0);
+      const lru = L.lru[s] === w ? `<span class="dim" title="LRU: replaced next">*</span>` : "";
+      h += `<tr class="${cls}"><td>${s}${lru}</td><td>${v ? "1" : "0"} ${d ? '<b style="color:var(--warn)">1</b>' : "0"}</td><td>${base}</td>`;
+      for (let k = 0; k < 4; k++) h += `<td>${hx(L.data[l * 4 + k], 8)}</td>`;
+      h += `</tr>`;
+    }
+    h += `</table></div>`;
+  }
+  set("c_cl", h);
+  set("h_cl", `<span class="dim" title="data_mem decodes byte address bits [11:0]; higher bits alias">* = LRU way · base = addr[11:0]</span>`);
+};
+R.mem = f => {
+  const m = f.mem, p = f.pf; let h = "";
+  const mm = a => (a >>> 28) === 1;
+  h += `<div class="k">core → memory port this cycle</div>`;
+  if (m.re) h += `<div class="row">${pill("READ", "p-acc")}<span class="mono">${h0(m.raddr)}</span>${mm(m.raddr) ? pill("MMIO", "p-dim") : ""}</div>`;
+  if (m.we) h += `<div class="row">${pill("WRITE", "p-acc")}<span class="mono">${h0(m.waddr)} ← ${h0(m.wdata)}</span>${mm(m.waddr) ? pill("MMIO", "p-dim") : ""}</div>`;
+  if (!m.re && !m.we) h += `<div class="dim">idle</div>`;
+  h += `<div class="row" style="margin-top:4px"><span class="k">mem_wait</span>${m.rvalid ? pill("read port free", "p-dim") : pill("read pending", "p-warn")}${m.wvalid ? "" : pill("write buffer full", "p-warn")}</div>`;
+  if (m.ram_re || m.ram_we) h += `<div class="row"><span class="k">data_mem</span>${m.ram_re ? `read ${h0(m.ram_raddr)}` : ""}${m.ram_we ? ` write ${h0(m.ram_waddr)}` : ""}</div>`;
+  h += `<div style="margin-top:6px;border-top:1px solid var(--line);padding-top:5px" class="k">board outputs (MMIO)</div>`;
+  h += `<div class="row"><span class="k" style="width:58px">result</span><span class="big" style="font-size:16px">${hx(p.result, 8)}</span></div>`;
+  h += `<div class="row" style="margin-top:3px"><span class="k" style="width:58px">LEDs</span>${p.done ? pill("done", "p-ok") : pill("done", "p-dim")}${p.exc ? pill("exception", "p-bad") : pill("exception", "p-dim")}<span class="dim">sw=${hx(S.tr.meta.sw, 4)}</span></div>`;
+  set("c_mem", h);
+};
+R.pf = f => {
+  const p = f.pf;
+  const ipc = p.cycles ? (p.retired / p.cycles).toFixed(3) : "—";
+  const hr = p.dacc ? (100 * p.dhit / p.dacc).toFixed(1) + "%" : "—";
+  const acc = p.br ? (100 * (p.br - p.mis) / p.br).toFixed(1) + "%" : "—";
+  const cell = (k, v, sub) => `<div style="padding:4px 6px;border:1px solid var(--line);border-radius:6px"><div class="k">${k}</div><div class="mono" style="font-size:15px;font-weight:600">${v}</div>${sub ? `<div class="dim" style="font-size:10px">${sub}</div>` : ""}</div>`;
+  let h = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px">`;
+  h += cell("cycles", p.cycles, "D21: stops at done") + cell("retired", p.retired, "IPC " + ipc) + cell("out-of-order", p.ooo, "committed late finishers");
+  h += cell("branches", p.br, "accuracy " + acc) + cell("mispredicts", p.mis) + cell("D-cache", p.dhit + "/" + p.dacc, "hit rate " + hr);
+  h += cell("ROB-full stalls", p.robst) + cell("RS-full stalls", p.rsst) + cell("JALR hold", p.holdc);
+  h += `</div>`;
+  set("c_pf", h);
+};
+
+// ======================================================================
+// events ("this cycle") and wires
+// ======================================================================
+function events(f){
+  const ev = [];
+  const E = (c, t) => ev.push([c, t]);
+  const fe = f.fe, d = f.dp;
+  if (f.rob.flush){
+    const n = f.rob.e.filter(e => e.sq).length;
+    E("var(--bad)", `Mispredict recovery for ${chip(f.rob.flushTag)}: squash ${n} younger entr${n === 1 ? "y" : "ies"}, restore the RAT checkpoint, refetch from ${h0(f.rob.flushPc)}`);
+  }
+  if (fe.redir){
+    const why = f.rob.flush ? "mispredict" : (f.fu.alu.v && (f.fu.alu.op >> 5) & 1) ? "JALR resolved" : "dispatch fix (JAL / wrong BTB hint)";
+    E("var(--bad)", `Fetch redirected to ${h0(fe.newPc)} (${why})`);
+  }
+  if (fe.push) E("var(--dim)", `Fetched ${h0(fe.pendPc)} <span class="mono">${esc(asmAt(fe.pendPc))}</span> into the instruction queue`);
+  if (d.v && d.fire){
+    const unit = {0:"ALU RS", 5:"ALU RS", 1:"MUL RS", 2:"DIV RS", 3:"LSQ", 4:"LSQ", 6:"ROB (ready immediately)", 7:"ROB (illegal → NOP)"}[d.cls];
+    const waits = [d.u1 && d.s1 === "wait" ? waitChip(d.t1) : "", d.u2 && d.s2 === "wait" && !d.useImm && !d.jalr ? waitChip(d.t2) : ""].filter(x => x).join(" ");
+    E("var(--accent)", `Dispatch <span class="mono">${esc(asmAt(d.pc))}</span> as ${chip(d.tag)} → ${unit}${d.wr && d.rd ? `, ${ABI[d.rd]} renamed to T${d.tag}` : ""}${waits ? `, waits for ${waits}` : ""}`);
+  } else if (d.v && d.try_) E("var(--warn)", `Dispatch stalled: ${esc(d.reason)}`);
+  else if (d.v && f.fe.hold) E("var(--warn)", `Dispatch held: JALR in flight`);
+  for (const [k, u] of [["alu","ALU"],["mul","MUL"],["div","DIV"]]){
+    const rs = f.rs[k];
+    if (rs.iss){ const e = rs.e[rs.sel]; E(k === "alu" ? "var(--b0)" : k === "mul" ? "var(--b1)" : "var(--b2)", `Issue ${chip(e.tag)} <span class="mono">${esc(tagAsm(f, e.tag))}</span> from ${u} RS[${rs.sel}] to the ${u}`); }
+  }
+  const q = f.lsq;
+  if (q.laGo) E("var(--b3)", `Load ${chip(q.e[q.head].tag)} reads ${h0(q.hAddr)}`);
+  if (q.srGo) E("var(--b3)", `Store ${chip(q.e[q.head].tag)} has address and data: completes on CDB3`);
+  if (q.stCommit) E("var(--ok)", `Store ${chip(q.e[q.head].tag)} commits: writes ${h0(f.cm.sdata)} to ${h0(f.cm.saddr)} (mask ${hx(f.cm.sstrb,1)})`);
+  if (f.dc.acc && !f.dc.mmio) E(f.dc.hit ? "var(--ok)" : "var(--bad)", `L1 ${f.dc.we ? "write" : "read"} ${h0(f.dc.addr)}: ${f.dc.hit ? "hit" : "miss"}`);
+  f.cdb.forEach((b, k) => { if (b.v){
+    E(BUS[k].c, `${BUS[k].n} (${BUS[k].u}) broadcasts ${chip(b.tag)} = ${val(b.val)}` + (f.rob.e[b.tag] && f.rob.e[b.tag].k === 1 ? " (store done)" : ""));
+  }});
+  const wk = ["alu","mul","div"].reduce((a, k) => a + wakeups(f, f.rs[k].e).n, 0) + wakeups(f, f.lsq.e).n;
+  if (wk) E("var(--text)", `${wk} waiting operand${wk > 1 ? "s" : ""} captured from the buses`);
+  const nb = f.cdb.filter(b => b.v).length;
+  if (nb > 1) E("var(--text)", `${nb} buses broadcast in the same cycle`);
+  if (f.cm.v){
+    const c = f.cm;
+    const what = c.st ? "store" : c.has_rd && c.rd ? `${ABI[c.rd]} = ${val(c.val)}` : c.cond ? `branch ${c.taken ? "taken" : "not taken"}${c.mis ? " (was mispredicted)" : ""}` : "no register write";
+    E("var(--ok)", `Commit ${chip(c.tag)} <span class="mono">${esc(asmAt(c.pc))}</span>: ${what}${c.ooo ? " · out-of-order event" : ""}`);
+  }
+  if (f.pf.uart_push) E("var(--ok)", `UART send '${esc(String.fromCharCode(f.pf.uart_byte))}'`);
+  return ev;
+}
+function updateWires(f){
+  lit("fe_iq", f.fe.push); lit("iq_dp", f.dp.fire);
+  lit("redir_dp", f.dp.redir);
+  lit("redir_ex", f.fe.redir && !f.dp.redir);
+  lit("fe_bp", f.fe.ptaken);
+  lit("rename", f.dp.fire && f.dp.wr && f.dp.rd); lit("alloc", f.dp.fire);
+  lit("commit", f.cm.v && f.cm.has_rd && f.cm.rd);
+  const c = f.dp.fire ? f.dp.cls : -1;
+  const to = {rsa: c === 0 || c === 5, rsm: c === 1, rsd: c === 2, lsq: c === 3 || c === 4};
+  lit("disp_trunk", to.rsa || to.rsm || to.rsd || to.lsq);
+  for (const k in to) lit("disp_" + k, to[k]);
+  lit("iss_rsa", f.rs.alu.iss); lit("iss_rsm", f.rs.mul.iss); lit("iss_rsd", f.rs.div.iss);
+  lit("iss_lsq", f.dc.req);
+  for (let k = 0; k < 4; k++){
+    const b = f.cdb[k]; lit("bus" + k, b.v, BUS[k].c);
+    const p = $("bp" + k);
+    p.innerHTML = b.v ? `${BUS[k].n} ${BUS[k].u} ${chip(b.tag)} = ${h0(b.val)}` : `${BUS[k].n} ${BUS[k].u} · idle`;
+    p.style.color = b.v ? "var(--text)" : ""; p.style.borderColor = b.v ? BUS[k].c : "";
+  }
+  lit("wb_rob", f.cdb.some(b => b.v && f.rob.e[b.tag] && f.rob.e[b.tag].v));
+  lit("wake_rsa", wakeups(f, f.rs.alu.e).n); lit("wake_rsm", wakeups(f, f.rs.mul.e).n);
+  lit("wake_rsd", wakeups(f, f.rs.div.e).n); lit("wake_lsq", wakeups(f, f.lsq.e).n);
+  lit("mem", f.mem.re || f.mem.we);
+}
+
+// ======================================================================
+// side panel
+// ======================================================================
+function buildListing(){
+  let h = "";
+  for (const [pc, w, a] of S.tr.program){
+    const lab = S.labels[pc.toString(16)];
+    if (lab) h += `<div class="li"><span class="lab">&lt;${esc(lab)}&gt;</span></div>`;
+    h += `<div class="li" id="L${pc}"><span class="pc">${hx(pc,4)}</span><span>${esc(a)}</span><span class="mk"></span></div>`;
+  }
+  $("listing").innerHTML = h; S.lastMarks = [];
+}
+function updateListing(f){
+  for (const el of S.lastMarks || []){ el.classList.remove("f","d","c"); el.querySelector(".mk").innerHTML = ""; }
+  S.lastMarks = [];
+  const mark = (pc, cls, html) => {
+    const el = document.getElementById("L" + (pc >>> 0)); if (!el) return null;
+    if (cls) el.classList.add(cls);
+    if (html) el.querySelector(".mk").insertAdjacentHTML("beforeend", html);
+    S.lastMarks.push(el); return el;
+  };
+  mark(f.fe.pc, "f", `<span class="mkf">F</span>`);
+  for (const e of f.iq.e) mark(e[1], null, `<span class="mkf">IQ</span>`);
+  f.rob.e.forEach((e, i) => { if (e.v) mark(e.pc, null, chip(i)); });
+  let target = null;
+  if (f.dp.v) target = mark(f.dp.pc, "d", "");
+  if (f.cm.v){ const el = mark(f.cm.pc, "c", ""); target = target || el; }
+  if ($("follow").checked){
+    const el = target || document.getElementById("L" + f.fe.pc);
+    if (el){ const box = $("listing"); const top = el.offsetTop - box.offsetTop;
+      if (top < box.scrollTop + 20 || top > box.scrollTop + box.clientHeight - 40) box.scrollTop = top - box.clientHeight / 3; }
+  }
+}
+function updateCommits(){
+  let h = ""; let n = 0;
+  for (let j = S.commitIdx.length - 1; j >= 0 && n < 60; j--){
+    const i = S.commitIdx[j]; if (i > S.i) continue;
+    const c = S.frames[i].cm; n++;
+    const what = c.st ? `store ${h0(c.sdata)} → ${h0(c.saddr)}` : c.has_rd && c.rd ? `${ABI[c.rd]} = ${h0(c.val)}` : c.cond ? (c.taken ? "taken" : "not taken") + (c.mis ? " ✗" : "") : "";
+    h += `<div${i === S.i ? ' style="color:var(--ok)"' : ""}><span class="faint">${String(i).padStart(4)}</span> ${hx(c.pc,3)} ${esc(asmAt(c.pc).padEnd(20))} <span class="dim">${what}</span></div>`;
+  }
+  $("commits").innerHTML = h || `<div class="dim">no commits yet</div>`;
+  if (S.uartAt.length){ let s = ""; for (const [i, b] of S.uartAt) if (i <= S.i) s += String.fromCharCode(b); $("uart").textContent = s; }
+}
+
+// ======================================================================
+// render
+// ======================================================================
+function render(){
+  if (!S.frames.length) return;
+  const f = S.frames[S.i];
+  R.fe(f); R.iq(f); R.dp(f); R.rf(f); R.rob(f); R.rs(f); R.lsq(f);
+  R.alu(f); R.mul(f); R.div(f); R.dc(f); R.bp(f); R.cl(f); R.mem(f); R.pf(f);
+  updateWires(f);
+  const ev = events(f);
+  $("events").innerHTML = ev.length ? ev.map(([c, t]) => `<div class="ev" style="--evc:${c}">${t}</div>`).join("") : `<div class="none">nothing moves this cycle</div>`;
+  $("evcyc").textContent = "cycle " + S.i;
+  $("cyc").innerHTML = `cycle <b>${S.i}</b> / ${S.frames.length - 1}`;
+  updateListing(f); updateCommits(); drawPlayhead();
+}
+
+// ======================================================================
+// timeline
+// ======================================================================
+let TL = null;
+function drawTimeline(){
+  const cv = $("timeline"), dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const off = document.createElement("canvas"); off.width = cv.width; off.height = cv.height;
+  const g = off.getContext("2d"); g.scale(dpr, dpr);
+  const cs = getComputedStyle(document.documentElement);
+  const C = n => cs.getPropertyValue(n).trim();
+  g.fillStyle = C("--panel2"); g.fillRect(0, 0, w, h);
+  const n = S.frames.length, bw = w / n;
+  for (let i = 0; i < n; i++){
+    const f = S.frames[i], x = i * bw;
+    const oh = (f.rob.count / 8) * (h - 10);
+    g.fillStyle = C("--accent"); g.globalAlpha = .55; g.fillRect(x, h - 4 - oh, Math.max(bw, .6), oh); g.globalAlpha = 1;
+    if (f.dp.try_ && !f.dp.fire){ g.fillStyle = C("--warn"); g.fillRect(x, h - 3, Math.max(bw, .6), 3); }
+    if (f.cm.v){ g.fillStyle = C("--ok"); g.fillRect(x, 0, Math.max(bw, .6), 3); }
+    if (f.rob.flush){ g.fillStyle = C("--bad"); g.fillRect(x, 0, Math.max(bw, 1.5), h); }
+  }
+  TL = off; drawPlayhead();
+}
+function drawPlayhead(){
+  if (!TL) return;
+  const cv = $("timeline"), g = cv.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(TL, 0, 0);
+  const n = S.frames.length; const x = (S.i + .5) / n * cv.width;
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text");
+  g.fillRect(Math.round(x - dpr), 0, 2 * dpr, cv.height);
+}
+function seekFromEvent(e){
+  const r = $("timeline").getBoundingClientRect();
+  const i = Math.floor((e.clientX - r.left) / r.width * S.frames.length);
+  go(Math.max(0, Math.min(S.frames.length - 1, i)));
+}
+let dragging = false;
+$("timeline").addEventListener("mousedown", e => { dragging = true; setPlaying(false); seekFromEvent(e); });
+window.addEventListener("mousemove", e => { if (dragging) seekFromEvent(e); });
+window.addEventListener("mouseup", () => dragging = false);
+
+// ======================================================================
+// playback
+// ======================================================================
+function go(i){ S.i = Math.max(0, Math.min(S.frames.length - 1, i)); render(); }
+function setPlaying(p){
+  S.playing = p && S.frames.length > 0;
+  $("bPlay").textContent = S.playing ? "❚❚ Pause" : "▶ Play";
+  S.last = performance.now(); S.acc = 0;
+}
+function speedFromSlider(v){ return Math.round(Math.pow(10, -0.5 + v / 100 * 2.3) * 100) / 100; }  // 0.32 .. 63 cycles/s
+function updateSpeed(){ S.cps = speedFromSlider(+$("speed").value); $("speedv").textContent = S.cps + " cyc/s"; }
+function tick(now){
+  if (S.playing){
+    S.acc += (now - S.last) / 1000 * S.cps;
+    const n = Math.floor(S.acc);
+    if (n > 0){
+      S.acc -= n;
+      if (S.i + n >= S.frames.length - 1){ go(S.frames.length - 1); setPlaying(false); }
+      else go(S.i + n);
+    }
+  }
+  S.last = now; requestAnimationFrame(tick);
+}
+function jump(){
+  const kind = $("jumpSel").value;
+  const test = {
+    commit: f => f.cm.v, cdb2: f => f.cdb.filter(b => b.v).length > 1, ooo: f => f.cm.v && f.cm.ooo,
+    flush: f => f.rob.flush, stall: f => f.dp.try_ && !f.dp.fire, miss: f => f.dc.miss, div: f => f.fu.div.start,
+  }[kind];
+  for (let i = S.i + 1; i < S.frames.length; i++) if (test(S.frames[i])){ setPlaying(false); go(i); return; }
+  $("bJump").animate([{background:"var(--bad)"},{background:""}], {duration:400});
+}
+$("bPlay").onclick = () => { if (S.i >= S.frames.length - 1) go(0); setPlaying(!S.playing); };
+$("bStep").onclick = () => { setPlaying(false); go(S.i + 1); };
+$("bBack").onclick = () => { setPlaying(false); go(S.i - 1); };
+$("bStart").onclick = () => { setPlaying(false); go(0); };
+$("bEnd").onclick = () => { setPlaying(false); go(S.frames.length - 1); };
+$("bJump").onclick = jump;
+$("speed").oninput = updateSpeed;
+$("prog").onchange = () => loadByName($("prog").value);
+$("bTheme").onclick = () => {
+  const r = document.documentElement; r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
+  try { localStorage.setItem("toma_theme", r.dataset.theme); } catch (e) {}
+  drawTimeline();
+};
+$("bHelp").onclick = () => $("help").style.display = "flex";
+$("help").onclick = () => $("help").style.display = "none";
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.key === " "){ e.preventDefault(); $("bPlay").click(); }
+  else if (e.key === "ArrowRight"){ e.preventDefault(); $("bStep").click(); }
+  else if (e.key === "ArrowLeft"){ e.preventDefault(); $("bBack").click(); }
+  else if (e.key === "Home") $("bStart").click();
+  else if (e.key === "End") $("bEnd").click();
+  else if (e.key === "[" || e.key === "]"){ const s = $("speed"); s.value = Math.max(0, Math.min(100, +s.value + (e.key === "]" ? 8 : -8))); updateSpeed(); }
+  else if (e.key === "n" || e.key === "N") jump();
+  else if (e.key === "?") $("help").style.display = "flex";
+  else if (e.key === "Escape") $("help").style.display = "none";
+});
+
+// render every frame once (open index.html?prog=NAME&selftest=1); result shown on the page
+function selftest(){
+  const t0 = performance.now(); let n = 0, err = null;
+  try { for (let i = 0; i < S.frames.length; i++){ S.i = i; render(); n++; } }
+  catch (e){ err = "frame " + S.i + ": " + e + "\n" + (e.stack || ""); }
+  const el = $("err"); el.style.display = "block";
+  el.style.background = err ? "#5a1d1d" : "#1d4a2a";
+  el.textContent = err ? "SELFTEST FAIL " + S.tr.meta.name + " " + err
+                       : `SELFTEST OK ${S.tr.meta.name}: ${n} frames rendered in ${(performance.now() - t0).toFixed(0)} ms (${((performance.now() - t0) / n).toFixed(2)} ms/frame)`;
+}
+
+// scale the 1400 x 1070 design canvas to the stage
+function fit(){
+  const st = $("stage"), cv = $("canvas");
+  const s = Math.min((st.clientWidth - 16) / 1400, 1.25);
+  cv.style.transform = `scale(${s})`;
+  st.style.height = (1070 * s + 16) + "px";
+  st.style.minHeight = "0";
+}
+window.addEventListener("resize", () => { fit(); drawTimeline(); });
+
+// ======================================================================
+// start
+// ======================================================================
+(function init(){
+  try { const t = localStorage.getItem("toma_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  buildStatic(); fit(); updateSpeed();
+  const man = window.TOMA_MANIFEST || [];
+  const sel = $("prog");
+  for (const m of man){
+    const o = document.createElement("option"); o.value = m.name;
+    o.textContent = `${m.name} · ${m.cycles} cyc${m.status === "PASS" ? "" : " · " + m.status}`;
+    sel.appendChild(o);
+  }
+  const qs = new URLSearchParams(location.search);
+  if (qs.get("theme")) document.documentElement.dataset.theme = qs.get("theme");
+  const want = qs.get("prog") || (man[0] && man[0].name);
+  if (!want){ window.onerror("No traces found. Run: python3 gen_trace.py"); return; }
+  sel.value = want;
+  const startAt = qs.has("cycle") ? +qs.get("cycle") : null;
+  const check = setInterval(() => {
+    if (S.tr && S.tr.meta.name === want){
+      clearInterval(check);
+      if (qs.has("selftest")) selftest();
+      else { if (startAt != null) go(startAt); if (qs.has("play")) setPlaying(true); }
+    }
+  }, 50);
+  loadByName(want);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
